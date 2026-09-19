@@ -18,16 +18,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 两个 lockfile 都是 lockfileVersion 9.0，pnpm 10 可直接使用。
+      # 本仓库 package.json 没有 packageManager 字段，所以在这里显式指定版本。
+      # 若将来给 package.json 加上 packageManager，必须删掉这里的 version，
+      # 否则 pnpm/action-setup 会报 "Multiple versions of pnpm specified"。
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: '10'
 
+      # 用当前 LTS。Node 20 在 GitHub Actions 上已弃用。
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
