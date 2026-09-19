@@ -1,0 +1,58 @@
+name: CI
+
+# 管理端：SvelteKit 5 + Tailwind CSS 4 + STDF
+# 构建产物是带 /admin 前缀的静态站点，由 backend 仓库托管。
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Type check and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 两个 lockfile 都是 lockfileVersion 9.0，pnpm 10 可直接使用。
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # CI 环境下 pnpm 默认 --frozen-lockfile，lockfile 与 package.json
+      # 不一致会直接失败，这正是我们想要的：避免 CI 悄悄改写依赖。
+      - name: Install dependencies
+        run: pnpm install
+
+      # 类型检查不通过就不产出产物，避免把坏包发出去。
+      - name: Type check
+        run: pnpm run check
+
+      - name: Build
+        run: pnpm run build
+
+      # 产物结构：build/index.html + build/_app/**，部署到 backend 的 public/admin。
+      - name: Show build output
+        run: |
+          echo "files: $(find build -type f | wc -l)"
+          du -sh build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-build
+          path: build
+          if-no-files-found: error
+          retention-days: 7
