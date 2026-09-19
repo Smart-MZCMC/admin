@@ -16,19 +16,19 @@ jobs:
     name: Type check and build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 本仓库 package.json 没有 packageManager 字段，所以在这里显式指定版本。
       # 若将来给 package.json 加上 packageManager，必须删掉这里的 version，
       # 否则 pnpm/action-setup 会报 "Multiple versions of pnpm specified"。
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: '10'
 
       # 用当前 LTS。Node 20 在 GitHub Actions 上已弃用。
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: pnpm
@@ -53,7 +53,7 @@ jobs:
           du -sh build
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: admin-build
           path: build
