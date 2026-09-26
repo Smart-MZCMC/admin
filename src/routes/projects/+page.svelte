@@ -3,11 +3,14 @@
 	import { api } from '$lib/api/client';
 	import type { Project } from '$lib/api/types';
 	import { feedback } from '$lib/stores/feedback.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Panel from '$lib/components/Panel.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Field from '$lib/components/Field.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let projects = $state<Project[]>([]);
 	let loading = $state(true);
@@ -24,11 +27,11 @@
 	let copiedCode = $state<string | null>(null);
 
 	const columns = [
-		{ key: 'id', label: 'ID', width: '5rem' },
+		{ key: 'id', label: 'ID', width: '4.5rem' },
 		{ key: 'name', label: '名称' },
 		{ key: 'code', label: '编码', width: '12rem' },
 		{ key: 'description', label: '描述' },
-		{ key: 'actions', label: '操作', width: '12rem' }
+		{ key: 'actions', label: '操作', width: '11rem' }
 	];
 
 	async function load() {
@@ -126,47 +129,63 @@
 
 <svelte:head><title>项目管理 - 管理后台</title></svelte:head>
 
-<Panel
-	title="项目列表"
-	description="共 {projects.length} 个项目。项目编码是各客户端订阅时使用的唯一标识，创建后不可修改。"
->
+<PageHeader title="项目管理" description="项目编码是各客户端订阅时使用的唯一标识，创建后不可修改。">
 	{#snippet actions()}
-		<button
-			type="button"
-			onclick={openCreate}
-			class="cursor-pointer rounded-[var(--radius-small)] bg-primary px-3.5 py-2 text-[12px] font-medium text-text-on-primary transition-opacity hover:opacity-90"
-		>
-			+ 新建项目
-		</button>
+		<Button variant="secondary" icon="refresh" disabled={loading} onclick={() => void load()}>
+			刷新
+		</Button>
+		<Button variant="primary" icon="plus" onclick={openCreate}>新建项目</Button>
 	{/snippet}
+</PageHeader>
 
-	<DataTable {columns} rows={projects} rowKey={(project) => project.id} {loading} emptyText="暂无项目">
+<Panel bodyClass="p-0">
+	<div
+		class="flex items-center justify-between gap-3 border-b border-border bg-bg-overlay/60 px-5 py-2.5"
+	>
+		<span class="text-[12px] text-fg-muted">共 {projects.length} 个项目</span>
+	</div>
+
+	<DataTable
+		{columns}
+		rows={projects}
+		rowKey={(project) => project.id}
+		{loading}
+		emptyText="还没有项目，点击右上角「新建项目」开始。"
+	>
 		{#snippet cell(project, column)}
-			{#if column.key === 'code'}
+			{#if column.key === 'id'}
+				<span class="font-mono text-[11.5px] text-fg-faint">#{project.id}</span>
+			{:else if column.key === 'name'}
+				<span class="font-medium text-fg">{project.name}</span>
+			{:else if column.key === 'code'}
 				<button
 					type="button"
 					title="点击复制编码"
 					onclick={() => void copyCode(project.code)}
-					class="cursor-pointer rounded-[var(--radius-small)] bg-bg-base px-2 py-1 font-mono text-[12px] text-gray-300 transition-colors hover:text-primary"
+					class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-bg-overlay px-2 py-1 font-mono text-[11.5px] text-fg-muted transition-colors hover:border-primary/40 hover:bg-primary-soft hover:text-primary-ink"
 				>
-					{copiedCode === project.code ? '已复制 ✓' : project.code}
+					{copiedCode === project.code ? '已复制' : project.code}
+					{#if copiedCode !== project.code}
+						<Icon name="copy" size={12} class="text-fg-faint" />
+					{:else}
+						<Icon name="check" size={12} class="text-success-ink" />
+					{/if}
 				</button>
+			{:else if column.key === 'description'}
+				<span class="text-fg-muted">{project.description || '—'}</span>
 			{:else if column.key === 'actions'}
 				<div class="flex flex-wrap gap-1.5">
-					<button
-						type="button"
-						onclick={() => openEdit(project)}
-						class="cursor-pointer rounded-[var(--radius-small)] border border-white/10 px-2.5 py-1 text-[11px] text-gray-400 transition-colors hover:border-primary hover:text-primary"
-					>
+					<Button size="sm" variant="secondary" icon="edit" onclick={() => openEdit(project)}>
 						编辑
-					</button>
-					<button
-						type="button"
+					</Button>
+					<Button
+						size="sm"
+						variant="danger-ghost"
+						icon="trash"
 						onclick={() => (pendingDelete = project)}
-						class="cursor-pointer rounded-[var(--radius-small)] border border-error/40 px-2.5 py-1 text-[11px] text-error transition-colors hover:bg-error/10"
 					>
 						删除
-					</button>
+					</Button>
 				</div>
 			{:else}
 				{(project as unknown as Record<string, unknown>)[column.key] || '-'}
@@ -185,23 +204,32 @@
 >
 	<Field label="项目名称" bind:value={formName} placeholder="如：校园运动会" required />
 	{#if editingId === null}
-		<Field label="项目编码" bind:value={formCode} placeholder="如：sports2025（唯一，创建后不可改）" required />
+		<Field
+			label="项目编码"
+			bind:value={formCode}
+			placeholder="如：sports2025（唯一，创建后不可改）"
+			required
+		/>
 	{:else}
-		<div class="rounded-[var(--radius-form)] border border-white/10 bg-bg-base px-3 py-2.5">
-			<div class="text-[11px] text-gray-500">项目编码（不可修改）</div>
-			<div class="mt-0.5 font-mono text-[13px] text-gray-300">{formCode}</div>
+		<div class="rounded-[var(--radius-form)] border border-border bg-bg-overlay px-3 py-2.5">
+			<div class="text-[11px] text-fg-muted">项目编码（不可修改）</div>
+			<div class="mt-0.5 font-mono text-[12.5px] text-fg">{formCode}</div>
 		</div>
 	{/if}
 	<Field label="描述" bind:value={formDescription} placeholder="可选" />
 	{#if descriptionNote}
-		<p class="text-[11px] text-warning">后端会忽略空描述，清空后无法保存，请填写其它内容或保留原值。</p>
+		<p class="flex items-start gap-1.5 text-[11.5px] text-warning-ink">
+			<Icon name="alert" size={14} class="mt-px shrink-0" />
+			后端会忽略空描述，清空后无法保存，请填写其它内容或保留原值。
+		</p>
 	{/if}
 </Modal>
 
 <ConfirmDialog
 	visible={pendingDelete !== null}
 	title="删除项目"
-	message="确定删除项目「{pendingDelete?.name ?? ''}」？该项目下的授权、控制权锁、采访点状态与历史消息都会被清除，此操作不可撤销。"
+	message="确定删除项目「{pendingDelete?.name ??
+		''}」？该项目下的授权、控制权锁、采访点状态与历史消息都会被清除，此操作不可撤销。"
 	confirmText="删除"
 	danger
 	onconfirm={confirmDelete}

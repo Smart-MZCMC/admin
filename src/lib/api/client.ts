@@ -7,6 +7,8 @@
  * point at the backend.
  */
 import { browser } from '$app/environment';
+import { goto } from '$app/navigation';
+import { resolve } from '$app/paths';
 import type {
 	AuthUser,
 	CleanupResult,
@@ -63,6 +65,31 @@ interface RequestOptions {
 	raw?: boolean;
 }
 
+/** 登录与注册本身就会返回 401/403，不能当成会话过期。 */
+const NO_SESSION_PATHS = new Set(['/api/auth/login', '/api/auth/register']);
+
+/**
+ * 会话过期时的统一处理。
+ *
+ * 后端现在会为未授权返回带可读消息的 JSON 错误体，所以能可靠判定
+ * 「令牌无效」而不是网络故障。补上这个分支之前，所有未授权响应都是
+ * 400 + 空 body，前端只能弹一个语焉不详的提示并停在半登录状态。
+ */
+let redirecting = false;
+function handleUnauthorized(path: string, status: number): void {
+	if (redirecting) return;
+	if (NO_SESSION_PATHS.has(path)) return;
+	// 403 是当前用户的真实权限状态，不该把登录态踢掉。
+	if (status === 403) return;
+	redirecting = true;
+	clearToken();
+	if (browser) {
+		void goto(resolve('/login')).finally(() => {
+			redirecting = false;
+		});
+	}
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
 	const { method = 'GET', body, raw = false } = options;
 
@@ -103,6 +130,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 			data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
 				? data.error
 				: `请求失败 (HTTP ${response.status})`;
+		handleUnauthorized(path, response.status);
 		throw new ApiError(message, response.status);
 	}
 
@@ -114,6 +142,14 @@ export const api = {
 	login: (username: string, password: string) =>
 		request<LoginResponse>('/api/auth/login', { method: 'POST', body: { username, password } }),
 
+	/**
+	 * 创建用户。后端分两种模式：
+	 *   - 用户表为空（全新部署）：第一个注册的人自动成为管理员，
+	 *     请求里的 role 会被忽略，**不需要任何登录态**。
+	 *   - 已有用户：必须由管理员登录态发起，role 只能是 admin / director。
+	 *
+	 * 密码至少 6 位，用户名限 64 字符内的字母数字与 `_.-` 及中文。
+	 */
 	register: (payload: {
 		username: string;
 		password: string;
@@ -129,7 +165,8 @@ export const api = {
 	// --- users ---
 	listUsers: () => request<User[]>('/api/admin/users'),
 
-	deleteUser: (id: number) => request<{ message: string }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+	deleteUser: (id: number) =>
+		request<{ message: string }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
 
 	updateUserRole: (id: number, role: string) =>
 		request<{ message: string }>(`/api/admin/users/${id}/role`, { method: 'PUT', body: { role } }),
@@ -147,7 +184,8 @@ export const api = {
 		request<{ message: string }>(`/api/admin/projects/${id}`, { method: 'DELETE' }),
 
 	// --- user/project assignment ---
-	listUserProjects: (userId: number) => request<UserProject[]>(`/api/admin/users/${userId}/projects`),
+	listUserProjects: (userId: number) =>
+		request<UserProject[]>(`/api/admin/users/${userId}/projects`),
 
 	assign: (userId: number, projectId: number) =>
 		request<UserProject>('/api/admin/assign', {
@@ -177,7 +215,11 @@ export const api = {
 		request<ExportResult>('/api/logs/export', { method: 'POST', body: { project_id: projectId } }),
 
 	exportLogsCsv: (projectId: number) =>
-		request<string>('/api/logs/export/csv', { method: 'POST', body: { project_id: projectId }, raw: true }),
+		request<string>('/api/logs/export/csv', {
+			method: 'POST',
+			body: { project_id: projectId },
+			raw: true
+		}),
 
 	cleanupLogs: (days: number) =>
 		request<CleanupResult>('/api/logs/cleanup', { method: 'POST', body: { days } }),

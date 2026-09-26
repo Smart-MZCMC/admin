@@ -3,11 +3,12 @@
 	import { api } from '$lib/api/client';
 	import type { Project, User } from '$lib/api/types';
 	import { feedback } from '$lib/stores/feedback.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Panel from '$lib/components/Panel.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-	import Spinner from '$lib/components/Spinner.svelte';
 	import Tag from '$lib/components/Tag.svelte';
+	import Button from '$lib/components/Button.svelte';
 
 	interface GrantRow {
 		user_id: number;
@@ -35,7 +36,7 @@
 		{ key: 'role', label: '角色', width: '8rem' },
 		{ key: 'project_name', label: '项目' },
 		{ key: 'project_code', label: '项目编码', width: '11rem' },
-		{ key: 'actions', label: '操作', width: '7rem' }
+		{ key: 'actions', label: '操作', width: '7.5rem' }
 	];
 
 	async function load() {
@@ -130,17 +131,27 @@
 		selectedUser ? grants.filter((grant) => grant.user_id === Number(selectedUser)) : []
 	);
 
+	const canSubmit = $derived(Boolean(selectedUser && selectedProject));
+
 	const selectClass =
-		'w-full rounded-[var(--radius-form)] border border-white/10 bg-bg-base px-3 py-2.5 text-[13px] text-text-dark focus:border-primary focus:outline-none';
+		'h-10 w-full rounded-[var(--radius-form)] border border-border bg-bg-surface px-3 text-[13px] text-fg transition-colors hover:border-border-strong focus:border-primary focus:ring-2 focus:ring-primary/15 focus:outline-none disabled:bg-bg-overlay disabled:text-fg-faint';
 </script>
 
 <svelte:head><title>权限分配 - 管理后台</title></svelte:head>
 
+<PageHeader title="权限分配" description="导播只能看到被授权的项目，管理员默认拥有全部权限。">
+	{#snippet actions()}
+		<Button variant="secondary" icon="refresh" disabled={loading} onclick={() => void load()}>
+			刷新
+		</Button>
+	{/snippet}
+</PageHeader>
+
 <div class="space-y-5">
-	<Panel title="分配用户到项目" description="导播只能看到被授权的项目，管理员默认拥有全部权限。">
+	<Panel title="分配用户到项目" description="选择一名用户与一个项目，建立或解除访问授权。">
 		<div class="grid gap-4 md:grid-cols-[1fr_1fr_auto]">
 			<label class="block">
-				<span class="mb-1.5 block text-[12px] text-gray-500">用户</span>
+				<span class="mb-1.5 block text-[12px] font-medium text-fg">用户</span>
 				<select bind:value={selectedUser} class={selectClass}>
 					<option value="">选择用户</option>
 					{#each users as user (user.id)}
@@ -155,7 +166,7 @@
 			</label>
 
 			<label class="block">
-				<span class="mb-1.5 block text-[12px] text-gray-500">项目</span>
+				<span class="mb-1.5 block text-[12px] font-medium text-fg">项目</span>
 				<select bind:value={selectedProject} class={selectClass}>
 					<option value="">选择项目</option>
 					{#each projects as project (project.id)}
@@ -165,77 +176,74 @@
 			</label>
 
 			<div class="flex items-end gap-2">
-				<button
-					type="button"
-					disabled={busy}
-					onclick={() => void assign()}
-					class="cursor-pointer rounded-[var(--radius-small)] bg-primary px-4 py-2.5 text-[12px] font-medium text-text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
-				>
+				<Button variant="primary" disabled={busy || !canSubmit} onclick={() => void assign()}>
 					分配
-				</button>
-				<button
-					type="button"
-					disabled={busy}
+				</Button>
+				<Button
+					variant="danger-ghost"
+					disabled={busy || !canSubmit}
 					onclick={() => void revokeSelection()}
-					class="cursor-pointer rounded-[var(--radius-small)] border border-error/40 px-4 py-2.5 text-[12px] font-medium text-error transition-colors hover:bg-error/10 disabled:opacity-50"
 				>
-					撤销
-				</button>
+					撤销所选
+				</Button>
 			</div>
 		</div>
 
 		{#if selectedUserGrants.length > 0}
-			<div class="mt-4 border-t border-white/5 pt-4">
-				<div class="mb-2 text-[12px] text-gray-500">该用户当前已授权项目</div>
+			<div class="mt-5 border-t border-border pt-4">
+				<div class="mb-2.5 text-[11.5px] font-medium text-fg-muted">该用户当前已授权项目</div>
 				<div class="flex flex-wrap gap-1.5">
 					{#each selectedUserGrants as grant (grant.project_id)}
 						<Tag text={`${grant.project_name} (${grant.project_code})`} state="success" size="sm" />
 					{/each}
 				</div>
 			</div>
+		{:else if selectedUser}
+			<div class="mt-5 border-t border-border pt-4 text-[11.5px] text-fg-faint">
+				该用户尚未获得任何项目授权。
+			</div>
 		{/if}
 	</Panel>
 
-	<Panel title="现有授权" description="共 {grants.length} 条授权记录。">
-		{#if loading}
-			<Spinner />
-		{:else}
-			<DataTable {columns} rows={grants} rowKey={(row) => `${row.user_id}-${row.project_id}`} emptyText="暂无授权记录">
-				{#snippet cell(row, column)}
-					{#if column.key === 'username'}
-						<span class="text-text-dark">{row.username}</span>
-						{#if row.display_name}
-							<span class="ml-1.5 text-gray-500">({row.display_name})</span>
-						{/if}
-					{:else if column.key === 'role'}
-						<Tag
-							text={row.role === 'admin' ? '管理员' : '导播'}
-							state={row.role === 'admin' ? 'error' : 'success'}
-							size="sm"
-						/>
-					{:else if column.key === 'project_code'}
-						<span class="font-mono text-[12px]">{row.project_code}</span>
-					{:else if column.key === 'actions'}
-						<button
-							type="button"
-							onclick={() => (pendingRevoke = row)}
-							class="cursor-pointer rounded-[var(--radius-small)] border border-error/40 px-2.5 py-1 text-[11px] text-error transition-colors hover:bg-error/10"
-						>
-							撤销
-						</button>
-					{:else}
-						{(row as unknown as Record<string, unknown>)[column.key] || '-'}
+	<Panel title="现有授权" description="共 {grants.length} 条授权记录。" bodyClass="p-0">
+		<DataTable
+			{columns}
+			rows={grants}
+			rowKey={(row) => `${row.user_id}-${row.project_id}`}
+			{loading}
+			emptyText="暂无授权记录"
+		>
+			{#snippet cell(row, column)}
+				{#if column.key === 'username'}
+					<span class="font-medium text-fg">{row.username}</span>
+					{#if row.display_name}
+						<span class="ml-1.5 text-[11.5px] text-fg-faint">({row.display_name})</span>
 					{/if}
-				{/snippet}
-			</DataTable>
-		{/if}
+				{:else if column.key === 'role'}
+					<Tag
+						text={row.role === 'admin' ? '管理员' : '导播'}
+						state={row.role === 'admin' ? 'theme' : 'success'}
+						size="sm"
+					/>
+				{:else if column.key === 'project_code'}
+					<span class="font-mono text-[11.5px] text-fg-muted">{row.project_code}</span>
+				{:else if column.key === 'actions'}
+					<Button size="sm" variant="danger-ghost" onclick={() => (pendingRevoke = row)}
+						>撤销</Button
+					>
+				{:else}
+					{(row as unknown as Record<string, unknown>)[column.key] || '-'}
+				{/if}
+			{/snippet}
+		</DataTable>
 	</Panel>
 </div>
 
 <ConfirmDialog
 	visible={pendingRevoke !== null}
 	title="撤销授权"
-	message="确定撤销「{pendingRevoke?.username ?? ''}」对项目「{pendingRevoke?.project_name ?? ''}」的访问权限？"
+	message="确定撤销「{pendingRevoke?.username ?? ''}」对项目「{pendingRevoke?.project_name ??
+		''}」的访问权限？"
 	confirmText="撤销"
 	danger
 	onconfirm={confirmRevoke}

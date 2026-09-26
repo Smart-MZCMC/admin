@@ -4,6 +4,7 @@
 	 * top bar plus tab navigation.
 	 */
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import '../app.css';
 	import ToastHost from '$lib/components/ToastHost.svelte';
 	import AppShell from '$lib/components/AppShell.svelte';
@@ -16,7 +17,7 @@
 		void auth.restore();
 	});
 
-	const isLogin = $derived(page.url.pathname.replace(/\/+$/, '') === '/login');
+	const isLogin = $derived(page.url.pathname.replace(/\/+$/, '') === resolve('/login'));
 </script>
 
 {#if isLogin}

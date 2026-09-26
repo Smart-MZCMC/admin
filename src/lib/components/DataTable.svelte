@@ -1,6 +1,5 @@
 <script lang="ts" generics="T">
 	import type { Snippet } from 'svelte';
-	import Spinner from './Spinner.svelte';
 	import type { Column } from './table';
 
 	interface Props {
@@ -32,12 +31,12 @@
 </script>
 
 <div class="overflow-x-auto">
-	<table class="w-full border-collapse text-[13px]">
+	<table class="w-full border-collapse text-[12.5px]">
 		<thead>
-			<tr>
+			<tr class="bg-bg-overlay/80">
 				{#each columns as column (column.key)}
 					<th
-						class="border-b border-white/10 px-4 py-3 text-[11px] font-medium tracking-wider text-gray-500 uppercase {column.align ===
+						class="border-b border-border px-5 py-2.5 text-[10.5px] font-semibold tracking-[0.06em] whitespace-nowrap text-fg-muted uppercase {column.align ===
 						'right'
 							? 'text-right'
 							: 'text-left'}"
@@ -51,23 +50,24 @@
 		<tbody>
 			{#if loading}
 				<tr>
-					<td colspan={columns.length}>
-						<Spinner />
+					<td colspan={columns.length} class="px-5 py-14 text-center">
+						<span
+							class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-primary/25 border-t-primary align-middle"
+						></span>
 					</td>
 				</tr>
 			{:else if rows.length === 0}
 				<tr>
-					<td colspan={columns.length} class="px-4 py-10 text-center text-[13px] text-gray-500">
-						{emptyText}
+					<td colspan={columns.length} class="px-5 py-14 text-center">
+						<span class="text-[12.5px] text-fg-faint">{emptyText}</span>
 					</td>
 				</tr>
 			{:else}
 				{#each rows as row (rowKey(row))}
-					<tr class="transition-colors hover:bg-primary/5">
+					<tr class="border-b border-border transition-colors last:border-0 hover:bg-bg-overlay/70">
 						{#each columns as column (column.key)}
 							<td
-								class="border-b border-white/5 px-4 py-3 align-middle text-gray-400 {column.align ===
-								'right'
+								class="px-5 py-3 align-middle text-fg-muted {column.align === 'right'
 									? 'text-right'
 									: 'text-left'}"
 							>
@@ -84,8 +84,8 @@
 		</tbody>
 		{#if footer && !loading}
 			<tfoot>
-				<tr>
-					<td colspan={columns.length} class="px-4 py-3 text-[12px] text-gray-500">
+				<tr class="bg-bg-overlay/60">
+					<td colspan={columns.length} class="px-5 py-2.5 text-[11.5px] text-fg-muted">
 						{@render footer()}
 					</td>
 				</tr>

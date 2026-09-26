@@ -1,12 +1,4 @@
 <script lang="ts">
-	/**
-	 * Small status pill.
-	 *
-	 * STDF 1.2.0 (the version this project installs) has no `Tag` component —
-	 * the bundled skill docs describe a newer snapshot. This is a local
-	 * replacement built from the same STDF theme tokens, so colours stay
-	 * consistent with the vendored components.
-	 */
 	type State = 'theme' | 'success' | 'warning' | 'error' | 'info' | 'neutral';
 
 	interface Props {
@@ -17,20 +9,30 @@
 
 	let { text, state = 'theme', size = 'sm' }: Props = $props();
 
-	const stateClass: Record<State, string> = {
-		theme: 'bg-primary/12 text-primary border-primary/25',
-		success: 'bg-success/12 text-success border-success/25',
-		warning: 'bg-warning/12 text-warning border-warning/25',
-		error: 'bg-error/12 text-error border-error/25',
-		info: 'bg-info/12 text-info border-info/25',
-		neutral: 'bg-white/6 text-gray-400 border-white/12'
+	const pill: Record<State, string> = {
+		theme: 'bg-primary-soft text-primary-ink border-primary-ink/20',
+		success: 'bg-success-soft text-success-ink border-success-ink/20',
+		warning: 'bg-warning-soft text-warning-ink border-warning-ink/20',
+		error: 'bg-error-soft text-error-ink border-error-ink/20',
+		info: 'bg-info-soft text-info-ink border-info-ink/20',
+		neutral: 'bg-neutral-soft text-neutral-ink border-border'
+	};
+
+	const dot: Record<State, string> = {
+		theme: 'bg-primary-ink',
+		success: 'bg-success',
+		warning: 'bg-warning',
+		error: 'bg-error',
+		info: 'bg-info',
+		neutral: 'bg-fg-faint'
 	};
 </script>
 
 <span
-	class="inline-flex items-center rounded-full border px-2 py-0.5 whitespace-nowrap {stateClass[
+	class="inline-flex items-center gap-1.5 rounded-full border px-2 py-[2px] font-medium whitespace-nowrap {pill[
 		state
 	]} {size === 'xs' ? 'text-[10px]' : 'text-[11px]'}"
 >
+	<span class="h-1.5 w-1.5 shrink-0 rounded-full {dot[state]}"></span>
 	{text}
 </span>

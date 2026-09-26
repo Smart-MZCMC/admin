@@ -1,4 +1,4 @@
-/** Lightweight one-at-a-time notification queue rendered by <ToastHost />. */
+/** Lightweight notification queue rendered by <ToastHost />. */
 
 export type FeedbackType = 'info' | 'success' | 'warning' | 'error';
 
@@ -8,18 +8,27 @@ export interface FeedbackItem {
 	type: FeedbackType;
 }
 
+/** Errors stay a little longer so they can actually be read. */
+const DURATION: Record<FeedbackType, number> = {
+	info: 3000,
+	success: 3000,
+	warning: 5000,
+	error: 6000
+};
+
 function createFeedbackStore() {
 	let items = $state<FeedbackItem[]>([]);
 	let nextId = 1;
 
+	function dismiss(id: number): void {
+		items = items.filter((item) => item.id !== id);
+	}
+
 	function push(message: string, type: FeedbackType = 'info'): number {
 		const id = nextId++;
 		items.push({ id, message, type });
+		setTimeout(() => dismiss(id), DURATION[type]);
 		return id;
-	}
-
-	function dismiss(id: number): void {
-		items = items.filter((item) => item.id !== id);
 	}
 
 	return {

@@ -63,10 +63,20 @@ export interface ServerStatus {
 	version: string;
 }
 
-/** GET /api/plugins — plugins.List() returns name/version pairs. */
+/**
+ * GET /api/plugins — plugins.List() returns a descriptor per plugin,
+ * including its effective config and whether it is actually running.
+ * Secrets (e.g. the ntfy topic) arrive already masked from the backend.
+ */
 export interface PluginInfo {
 	name: string;
 	version: string;
+	description: string;
+	enabled: boolean;
+	/** Why the plugin is off. Absent when it is running. */
+	reason?: string;
+	/** Effective config, already redacted. */
+	config: Record<string, string>;
 }
 
 /** GET /api/projects/:projectId/stats */
