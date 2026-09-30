@@ -4,16 +4,37 @@
 	import { resolve } from '$app/paths';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
+	import { api } from '$lib/api/client';
 	import Icon from '$lib/components/Icon.svelte';
 
 	let username = $state('');
 	let password = $state('');
+	let displayName = $state('');
 	let submitting = $state(false);
 	let error = $state('');
+
+	/**
+	 * 系统是否还没有任何账号。
+	 *
+	 * 全新部署时用户表是空的，登录表单永远登不进去。与其让用户对着一个
+	 * 必然失败的表单发呆，不如直接换成「创建首个管理员」。
+	 *
+	 * null 表示还没问出结果（保持登录表单，避免闪烁）。
+	 */
+	let needsBootstrap = $state<boolean | null>(null);
 
 	onMount(() => {
 		// Idempotent: whichever of the layout/login mounts first kicks this off.
 		void auth.restore();
+		void api
+			.bootstrapStatus()
+			.then((r) => {
+				needsBootstrap = r.needs_bootstrap;
+			})
+			.catch(() => {
+				// 问不到就按普通登录处理，不影响已有部署。
+				needsBootstrap = false;
+			});
 	});
 
 	// Already signed in (e.g. hitting /login with a live session).
@@ -33,14 +54,34 @@
 		submitting = true;
 		error = '';
 		try {
-			const user = await auth.login(username.trim(), password);
-			feedback.success(`欢迎回来，${user.display_name || user.username}`);
+			if (needsBootstrap) await bootstrap();
+			else {
+				const user = await auth.login(username.trim(), password);
+				feedback.success(`欢迎回来，${user.display_name || user.username}`);
+			}
 			await goto(resolve('/'), { replaceState: true });
 		} catch (err) {
-			error = err instanceof Error ? err.message : '登录失败';
+			error = err instanceof Error ? err.message : needsBootstrap ? '创建失败' : '登录失败';
 		} finally {
 			submitting = false;
 		}
+	}
+
+	/**
+	 * 创建首个管理员，然后直接登录。
+	 *
+	 * 后端在用户表为空时会把第一个注册的人固定为管理员，并忽略传入的 role；
+	 * 建好之后该接口立刻收紧为「仅管理员可调用」，所以这里不需要传 role。
+	 */
+	async function bootstrap() {
+		await api.register({
+			username: username.trim(),
+			password,
+			display_name: displayName.trim() || username.trim()
+		});
+		// 再走一次登录拿令牌——注册接口不返回 token。
+		const user = await auth.login(username.trim(), password);
+		feedback.success(`管理员 ${user.display_name || user.username} 创建成功`);
 	}
 
 	const inputClass =
@@ -123,8 +164,28 @@
 				</div>
 			</div>
 
-			<h1 class="text-[21px] font-semibold tracking-[-0.015em] text-fg">登录管理后台</h1>
-			<p class="mt-1.5 text-[13px] text-fg-muted">使用管理员或导播账号继续。</p>
+			{#if needsBootstrap}
+				<!-- 全新部署：还没有任何账号，登录必然失败，直接引导创建管理员 -->
+				<div
+					class="mb-5 flex items-start gap-2.5 rounded-[var(--radius-form)] border border-warning-line bg-warning-soft px-3 py-2.5 text-[12.5px] leading-relaxed text-warning-ink"
+				>
+					<Icon name="alert" size={15} class="mt-px shrink-0" />
+					<span>
+						系统尚未初始化，<b>还没有任何账号</b>。下面创建的第一个账号即为管理员。
+					</span>
+				</div>
+			{/if}
+
+			<h1 class="text-[21px] font-semibold tracking-[-0.015em] text-fg">
+				{needsBootstrap ? '创建管理员账号' : '登录管理后台'}
+			</h1>
+			<p class="mt-1.5 text-[13px] text-fg-muted">
+				{#if needsBootstrap}
+					这是全新部署，创建完成后该入口会自动关闭。
+				{:else}
+					使用管理员或导播账号继续。
+				{/if}
+			</p>
 
 			<form
 				onsubmit={(event) => {
@@ -144,7 +205,7 @@
 						<input
 							type="text"
 							bind:value={username}
-							placeholder="请输入用户名"
+							placeholder={needsBootstrap ? '建议用 admin' : '请输入用户名'}
 							autocomplete="username"
 							disabled={submitting}
 							class={inputClass}
@@ -163,13 +224,36 @@
 						<input
 							type="password"
 							bind:value={password}
-							placeholder="请输入密码"
-							autocomplete="current-password"
+							placeholder={needsBootstrap ? '至少 6 位' : '请输入密码'}
+							autocomplete={needsBootstrap ? 'new-password' : 'current-password'}
 							disabled={submitting}
 							class={inputClass}
 						/>
 					</span>
 				</label>
+
+				{#if needsBootstrap}
+					<label class="block">
+						<span class="mb-1.5 block text-[12px] font-medium text-fg">
+							显示名 <span class="font-normal text-fg-faint">（可选）</span>
+						</span>
+						<span class="relative">
+							<Icon
+								name="overview"
+								size={16}
+								class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-fg-faint"
+							/>
+							<input
+								type="text"
+								bind:value={displayName}
+								placeholder="留空则与用户名相同"
+								autocomplete="name"
+								disabled={submitting}
+								class={inputClass}
+							/>
+						</span>
+					</label>
+				{/if}
 
 				{#if error}
 					<div
@@ -188,15 +272,20 @@
 					{#if submitting}
 						<span class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
 						></span>
-						登录中...
+						{needsBootstrap ? '创建中...' : '登录中...'}
 					{:else}
-						登录
+						{needsBootstrap ? '创建并进入后台' : '登录'}
 					{/if}
 				</button>
 			</form>
 
 			<p class="mt-8 text-[11.5px] leading-relaxed text-fg-faint">
-				账号由系统管理员在「用户管理」中创建。忘记密码请直接在服务器上重新初始化管理员账号。
+				{#if needsBootstrap}
+					创建后请尽快在「用户管理」中为导播分配账号，并确认服务器端口不对公网开放
+					——初始化完成前，创建管理员的接口是公开的。
+				{:else}
+					账号由系统管理员在「用户管理」中创建。忘记密码请直接在服务器上重新初始化管理员账号。
+				{/if}
 			</p>
 
 			<!-- 备案号与版权：按备案要求放在登录页显著位置 -->

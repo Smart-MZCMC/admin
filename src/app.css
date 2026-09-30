@@ -59,6 +59,7 @@
 	--color-border: #e2e8f0;
 	--color-border-strong: #cbd5e1;
 	--color-error-line: #fecaca;
+	--color-warning-line: #fde68a;
 	--color-fg: #0f172a;
 	--color-fg-muted: #64748b;
 	--color-fg-faint: #94a3b8;
@@ -101,6 +102,7 @@
 		--color-border: #26324c;
 		--color-border-strong: #38466a;
 		--color-error-line: #7f1d1d;
+		--color-warning-line: #78350f;
 		--color-fg: #e6ecf7;
 		--color-fg-muted: #98a5bd;
 		--color-fg-faint: #6c7b95;

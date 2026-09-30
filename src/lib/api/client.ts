@@ -143,6 +143,12 @@ export const api = {
 		request<LoginResponse>('/api/auth/login', { method: 'POST', body: { username, password } }),
 
 	/**
+	 * 系统是否还没有任何账号。全新部署时用于把登录表单换成
+	 * 「创建首个管理员」——此时登录是必然失败的。
+	 */
+	bootstrapStatus: () => request<{ needs_bootstrap: boolean }>('/api/auth/bootstrap'),
+
+	/**
 	 * 创建用户。后端分两种模式：
 	 *   - 用户表为空（全新部署）：第一个注册的人自动成为管理员，
 	 *     请求里的 role 会被忽略，**不需要任何登录态**。
