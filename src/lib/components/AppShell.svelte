@@ -3,6 +3,8 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { api } from '$lib/api/client';
+	import type { Role } from '$lib/api/types';
+	import { roleLabel } from '$lib/roles';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
 	import Icon from './Icon.svelte';
@@ -11,29 +13,60 @@
 	let { children } = $props();
 
 	/** Typed so `resolve()` accepts these without a cast. */
-	type NavPath = '/' | '/users' | '/projects' | '/assign' | '/logs' | '/plugins';
+	type NavPath = '/' | '/users' | '/projects' | '/assign' | '/logs' | '/plugins' | '/settings';
 
-	const navGroups: { label: string; items: { path: NavPath; label: string; icon: IconName }[] }[] =
-		[
-			{
-				label: '工作空间',
-				items: [
-					{ path: '/', label: '总览', icon: 'overview' },
-					{ path: '/users', label: '用户管理', icon: 'users' },
-					{ path: '/projects', label: '项目管理', icon: 'projects' },
-					{ path: '/assign', label: '权限分配', icon: 'assign' }
-				]
-			},
-			{
-				label: '系统',
-				items: [
-					{ path: '/logs', label: '日志审计', icon: 'logs' },
-					{ path: '/plugins', label: '插件与统计', icon: 'plugins' }
-				]
-			}
-		];
+	interface NavItem {
+		path: NavPath;
+		label: string;
+		icon: IconName;
+		/**
+		 * 访问该页面所需的最低角色等级，缺省表示「登录即可」。
+		 *
+		 * 与后端守卫用同一套等级语义（models.Role 的 Level）。前端据此隐藏
+		 * 入口，避免用户点进去才吃一个 403；真正的权限判定仍在后端，这里
+		 * 只是不给出无意义的入口。
+		 */
+		min?: Role;
+	}
 
-	const flatNav = navGroups.flatMap((group) => group.items);
+	const navGroups: { label: string; items: NavItem[] }[] = [
+		{
+			label: '工作空间',
+			items: [
+				{ path: '/', label: '总览', icon: 'overview' },
+				{ path: '/users', label: '用户管理', icon: 'users', min: 'admin' },
+				{ path: '/projects', label: '项目管理', icon: 'projects', min: 'admin' },
+				{ path: '/assign', label: '权限分配', icon: 'assign', min: 'admin' }
+			]
+		},
+		{
+			label: '系统',
+			items: [
+				{ path: '/logs', label: '日志审计', icon: 'logs' },
+				{ path: '/plugins', label: '插件与统计', icon: 'plugins' },
+				// 系统信息与在线更新会替换服务自身的可执行文件，只给超管。
+				{ path: '/settings', label: '系统设置', icon: 'settings', min: 'super_admin' }
+			]
+		}
+	];
+
+	/** 按当前角色过滤后的导航。 */
+	const visibleNavGroups = $derived(
+		navGroups
+			.map((group) => ({
+				...group,
+				items: group.items.filter((item) => !item.min || auth.atLeast(item.min))
+			}))
+			.filter((group) => group.items.length > 0)
+	);
+
+	/**
+	 * 搜索用的扁平索引。
+	 *
+	 * 必须是 $derived：直接写 `visibleNavGroups.flatMap(...)` 只会捕获
+	 * $derived 的初始值，之后角色变化（比如切换账号）索引不会跟着更新。
+	 */
+	const flatNav = $derived(visibleNavGroups.flatMap((group) => group.items));
 
 	interface SearchItem {
 		id: string;
@@ -84,7 +117,7 @@
 				...users.map((user) => ({
 					id: `user-${user.id}`,
 					label: user.display_name || user.username,
-					meta: `@${user.username} · ${user.role === 'admin' ? '管理员' : '导播'}`,
+					meta: `@${user.username} · ${roleLabel(user.role)}`,
 					href: '/users' as const,
 					group: '用户' as const
 				})),

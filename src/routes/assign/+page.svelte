@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
 	import type { Project, User } from '$lib/api/types';
+	import { roleLabel, roleState } from '$lib/roles';
 	import { feedback } from '$lib/stores/feedback.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Panel from '$lib/components/Panel.svelte';
@@ -220,11 +221,7 @@
 						<span class="ml-1.5 text-[11.5px] text-fg-faint">({row.display_name})</span>
 					{/if}
 				{:else if column.key === 'role'}
-					<Tag
-						text={row.role === 'admin' ? '管理员' : '导播'}
-						state={row.role === 'admin' ? 'theme' : 'success'}
-						size="sm"
-					/>
+					<Tag text={roleLabel(row.role)} state={roleState(row.role)} size="sm" />
 				{:else if column.key === 'project_code'}
 					<span class="font-mono text-[11.5px] text-fg-muted">{row.project_code}</span>
 				{:else if column.key === 'actions'}

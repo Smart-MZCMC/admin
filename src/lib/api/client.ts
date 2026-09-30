@@ -10,16 +10,21 @@ import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import type {
+	ApplyUpdateResult,
 	AuthUser,
 	CleanupResult,
 	ExportResult,
+	HealthStatus,
 	LoginResponse,
 	LogsResponse,
 	Message,
 	PluginInfo,
 	Project,
 	ProjectStats,
+	RoleInfo,
 	ServerStatus,
+	SystemInfo,
+	UpdateStatus,
 	User,
 	UserProject
 } from './types';
@@ -150,9 +155,9 @@ export const api = {
 
 	/**
 	 * 创建用户。后端分两种模式：
-	 *   - 用户表为空（全新部署）：第一个注册的人自动成为管理员，
+	 *   - 用户表为空（全新部署）：第一个注册的人自动成为超级管理员，
 	 *     请求里的 role 会被忽略，**不需要任何登录态**。
-	 *   - 已有用户：必须由管理员登录态发起，role 只能是 admin / director。
+	 *   - 已有用户：必须由管理员及以上登录态发起，且只能授予不高于自己的角色。
 	 *
 	 * 密码至少 6 位，用户名限 64 字符内的字母数字与 `_.-` 及中文。
 	 */
@@ -165,8 +170,41 @@ export const api = {
 
 	profile: () => request<AuthUser>('/api/auth/profile'),
 
-	// --- status ---
+	// --- status & health ---
 	status: () => request<ServerStatus>('/api/status'),
+
+	/**
+	 * 健康检查。公开接口，数据库不可用时返回 503，因此不能复用 request()
+	 * ——那会把「服务不健康」当成请求失败抛掉，这里要的是响应体本身。
+	 */
+	health: async (): Promise<HealthStatus> => {
+		const res = await fetch(`${API_BASE}/api/health`, {
+			headers: { Accept: 'application/json' }
+		});
+		return (await res.json()) as HealthStatus;
+	},
+
+	// --- roles ---
+	/** 角色清单（含中文名与等级），任意登录用户可读。 */
+	roles: () => request<RoleInfo[]>('/api/roles'),
+
+	// --- system（仅超级管理员） ---
+	systemInfo: () => request<SystemInfo>('/api/system/info'),
+
+	updateStatus: () => request<UpdateStatus>('/api/system/update'),
+
+	/**
+	 * 应用更新。
+	 *
+	 * target_version 必须传用户确认过的那个版本号，后端会与更新源上的当前
+	 * 版本比对，不一致就拒绝——否则会出现「界面确认的是 1.2.0，实际装上
+	 * 1.3.0」。
+	 */
+	applyUpdate: (targetVersion: string) =>
+		request<ApplyUpdateResult>('/api/system/update/apply', {
+			method: 'POST',
+			body: { confirm: true, target_version: targetVersion }
+		}),
 
 	// --- users ---
 	listUsers: () => request<User[]>('/api/admin/users'),

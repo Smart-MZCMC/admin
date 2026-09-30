@@ -21,4 +21,5 @@ export type IconName =
 	| 'alert'
 	| 'download'
 	| 'filter'
-	| 'activity';
+	| 'activity'
+	| 'settings';

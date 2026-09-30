@@ -107,5 +107,8 @@
 		<path d="M3.5 5h17l-6.5 7.5V19l-4-2v-4.5L3.5 5Z" />
 	{:else if name === 'activity'}
 		<path d="M3 12h3.5l2.5-6.5 4.5 13 2.5-6.5H21" />
+	{:else if name === 'settings'}
+		<circle cx="12" cy="12" r="3" />
+		<path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" />
 	{/if}
 </svg>
