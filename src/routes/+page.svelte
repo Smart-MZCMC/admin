@@ -40,7 +40,12 @@
 				api.status().catch(() => null),
 				api.listUsers(),
 				api.listProjects(),
-				api.listLogs({ limit: 8 }).catch(() => ({ total: 0, messages: [] as Message[] }))
+				api.listLogs({ limit: 8 }).catch(() => ({
+					total: 0,
+					messages: [] as Message[],
+					next_cursor: 0,
+					has_more: false
+				}))
 			]);
 
 			users = userList;
@@ -89,6 +94,9 @@
 					code: project.code,
 					messages: stat?.message_count ?? 0,
 					interviews: stat?.interview_points ?? 0,
+					// B1 之后才有：切台次数。老后端不返回这个字段时显示 0，
+					// 不显示成「未知」——统计卡片上少一个数字比多一个占位好。
+					cuts: stat?.shot_cut_count ?? 0,
 					locked: stat?.lock_active ?? false,
 					holder: stat?.lock_holder ?? 0
 				};
@@ -227,7 +235,7 @@
 								></div>
 							</div>
 							<span class="shrink-0 text-[11px] tabular-nums text-fg-muted">
-								{row.messages} 条 · {row.interviews} 采访点
+								{row.messages} 条 · {row.interviews} 采访点 · {row.cuts} 次切台
 							</span>
 						</div>
 					</li>

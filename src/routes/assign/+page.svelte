@@ -157,10 +157,9 @@
 					<option value="">选择用户</option>
 					{#each users as user (user.id)}
 						<option value={String(user.id)}>
-							{user.username}{user.display_name ? ` (${user.display_name})` : ''} — {user.role ===
-							'admin'
-								? '管理员'
-								: '导播'}
+							{user.username}{user.display_name ? ` (${user.display_name})` : ''} — {roleLabel(
+								user.role
+							)}
 						</option>
 					{/each}
 				</select>

@@ -108,6 +108,17 @@ export interface Project {
 	code: string;
 	description: string;
 	created_at?: string;
+	/**
+	 * 计划时间窗。nullable：没排期的项目与「排在零值时刻」必须区分开，
+	 * 否则导播端按时间排序时未排期的会被顶到最前面。
+	 */
+	scheduled_start?: string | null;
+	scheduled_end?: string | null;
+	venue?: string;
+	/** 项目负责人 users.id，0 表示未指定。 */
+	owner_id?: number;
+	status?: ProjectStatus;
+	mode?: ProjectMode;
 }
 
 /** backend/app/models/user_project.go */
@@ -130,8 +141,108 @@ export interface Message {
 
 /** GET /api/logs */
 export interface LogsResponse {
+	/**
+	 * 匹配筛选条件的**真实总行数**，与本次返回的 messages 长度无关。
+	 *
+	 * 之前后端返回的是 `len(messages)`，也就是被 limit 截断后这一页的长度，
+	 * 而总览页喂的是 listLogs({ limit: 8 })——于是「消息累计」恒定不超过 8。
+	 */
 	total: number;
 	messages: Message[];
+	/** 下一页的游标：本页最后一条的 ID。0 表示没有下一页。 */
+	next_cursor: number;
+	has_more: boolean;
+}
+
+/** 项目状态与模式，与后端 models/project.go 的常量一一对应。 */
+export const PROJECT_STATUSES = ['planned', 'live', 'finished', 'cancelled'] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
+export const PROJECT_MODES = ['live', 'rehearsal'] as const;
+export type ProjectMode = (typeof PROJECT_MODES)[number];
+
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+	planned: '已计划',
+	live: '直播中',
+	finished: '已结束',
+	cancelled: '已取消'
+};
+
+export const PROJECT_MODE_LABELS: Record<ProjectMode, string> = {
+	live: '正式直播',
+	rehearsal: '彩排'
+};
+
+/** GET /api/projects/:projectId/cameras */
+export interface ProjectCamera {
+	id: number;
+	project_id: number;
+	name: string;
+	sort_order: number;
+}
+
+/** GET /api/projects/:projectId/shot-cuts — 切台流水与报表 */
+export interface ShotCut {
+	id: number;
+	project_id: number;
+	from_shot: string;
+	to_shot: string;
+	director_id: number;
+	mode: string;
+	cut_at: string;
+}
+
+export interface ShotCutStat {
+	shot: string;
+	count: number;
+	avg_dwell_seconds: number;
+}
+
+export interface ShotCutModeStat {
+	mode: string;
+	cut_count: number;
+}
+
+export interface ShotCutsResponse {
+	project_id: number;
+	total: number;
+	cuts: ShotCut[];
+	summary: {
+		cut_count: number;
+		avg_dwell_seconds: number;
+		by_shot: ShotCutStat[];
+		by_mode: ShotCutModeStat[];
+	};
+}
+
+/**
+ * GET /api/admin/audit-logs — 操作审计。
+ *
+ * 与 /api/logs（协调日志：谁切了台、谁发了内部消息）是两回事：这里记的是
+ * 「谁改了别人的角色、谁清掉了日志」。audit_logs 之前根本不存在，
+ * 审计只往 7 天轮转的 stdout 打，而且只覆盖三处操作。
+ */
+export interface AuditLog {
+	id: number;
+	actor_id: number;
+	/** 已脱敏的用户名（首字符 + *** + 末字符）。 */
+	actor_username: string;
+	action: string;
+	target_type: string;
+	target_id: string;
+	/** 一句话说明 + 附加 JSON。 */
+	detail: string;
+	ip: string;
+	created_at: string;
+}
+
+export interface AuditLogsResponse {
+	total: number;
+	logs: AuditLog[];
+	next_cursor: number;
+	has_more: boolean;
+	/** 库里出现过的动作类型，供筛选下拉使用。 */
+	actions: string[];
 }
 
 /** GET /api/status */
@@ -242,13 +353,25 @@ export interface ProjectStats {
 	lock_active: boolean;
 	lock_holder: number;
 	interview_points: number;
+	/** B1 之后才有：切台次数与平均停留时长。老后端不返回，故可选。 */
+	shot_cut_count?: number;
+	avg_shot_dwell_seconds?: number;
 	timestamp: string;
 }
 
-/** POST /api/logs/export and /api/logs/export/csv both report a row count back. */
+/**
+ * POST /api/logs/export 与 /api/logs/export/csv 都会回报导出行数。
+ *
+ * from/to 是必填的：后端不再允许对整个项目历史做一次无条件查询。
+ * truncated 为 true 表示触到了行数上限，应提示用户缩小时间范围。
+ */
 export interface ExportResult {
 	count: number;
 	message?: string;
+	from?: string;
+	to?: string;
+	truncated?: boolean;
+	limit?: number;
 }
 
 /** POST /api/logs/cleanup */

@@ -11,6 +11,7 @@ import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import type {
 	ApplyUpdateResult,
+	AuditLogsResponse,
 	AuthUser,
 	ChangePasswordResponse,
 	CleanupResult,
@@ -21,17 +22,37 @@ import type {
 	Message,
 	PluginInfo,
 	Project,
+	ProjectCamera,
 	ProjectStats,
 	RoleInfo,
 	ServerStatus,
 	SetupApplyPayload,
 	SetupApplyResult,
 	SetupStatus,
+	ShotCutsResponse,
 	SystemInfo,
 	UpdateStatus,
 	User,
 	UserProject
 } from './types';
+
+/**
+ * 创建/更新项目的请求体。
+ *
+ * 字段全部可选，语义是「出现了就更新」：空串表示清空，缺省表示不动。
+ * 后端靠键是否存在来区分，所以调用点不要用 falsy 判断去省略字段。
+ */
+export interface ProjectPayload {
+	name?: string;
+	code?: string;
+	description?: string;
+	venue?: string;
+	scheduled_start?: string;
+	scheduled_end?: string;
+	owner_id?: number;
+	status?: string;
+	mode?: string;
+}
 
 /**
  * Same-origin in production. During `vite dev` the admin app runs on its own
@@ -272,14 +293,58 @@ export const api = {
 	// --- projects ---
 	listProjects: () => request<Project[]>('/api/admin/projects'),
 
-	createProject: (payload: { name: string; code: string; description?: string }) =>
+	createProject: (payload: ProjectPayload) =>
 		request<Project>('/api/admin/projects', { method: 'POST', body: payload }),
 
-	updateProject: (id: number, payload: { name?: string; description?: string }) =>
+	/**
+	 * 更新项目。
+	 *
+	 * **字段只有出现才会被更新**，空串表示「清空」而不是「不动」。
+	 * 后端此前写的是 `if description != ""`，传空串会被静默忽略，描述一旦
+	 * 设过就再也清不掉；现在改用「键是否存在」判断，所以这里的 payload
+	 * 不能再用 falsy 判断去省略字段。
+	 */
+	updateProject: (id: number, payload: ProjectPayload) =>
 		request<{ message: string }>(`/api/admin/projects/${id}`, { method: 'PUT', body: payload }),
 
 	deleteProject: (id: number) =>
 		request<{ message: string }>(`/api/admin/projects/${id}`, { method: 'DELETE' }),
+
+	// --- 机位预设（B3：不再硬编码在导播端） ---
+	cameras: (projectId: number) => request<ProjectCamera[]>(`/api/projects/${projectId}/cameras`),
+
+	createCamera: (projectId: number, payload: { name: string; sort_order?: number }) =>
+		request<ProjectCamera>(`/api/admin/projects/${projectId}/cameras`, {
+			method: 'POST',
+			body: payload
+		}),
+
+	updateCamera: (
+		projectId: number,
+		cameraId: number,
+		payload: { name?: string; sort_order?: number }
+	) =>
+		request<{ message: string }>(`/api/admin/projects/${projectId}/cameras/${cameraId}`, {
+			method: 'PUT',
+			body: payload
+		}),
+
+	deleteCamera: (projectId: number, cameraId: number) =>
+		request<{ message: string }>(`/api/admin/projects/${projectId}/cameras/${cameraId}`, {
+			method: 'DELETE'
+		}),
+
+	// --- 切台报表（B1） ---
+	shotCuts: (projectId: number, params: { from?: string; to?: string; limit?: number } = {}) => {
+		const query = new URLSearchParams();
+		if (params.from) query.set('from', params.from);
+		if (params.to) query.set('to', params.to);
+		if (params.limit) query.set('limit', String(params.limit));
+		const suffix = query.toString();
+		return request<ShotCutsResponse>(
+			`/api/projects/${projectId}/shot-cuts${suffix ? `?${suffix}` : ''}`
+		);
+	},
 
 	// --- user/project assignment ---
 	listUserProjects: (userId: number) =>
@@ -298,10 +363,30 @@ export const api = {
 		}),
 
 	// --- logs ---
-	listLogs: (params: { projectId?: string; type?: string; limit?: number } = {}) => {
+	/**
+	 * 协调日志。
+	 *
+	 * total 是真实总行数，不是本页长度。翻页用 cursor（上一页的 next_cursor），
+	 * 不要用 offset：日志表持续写入，offset 会让同一条被重复看到或整段跳过。
+	 */
+	listLogs: (
+		params: {
+			projectId?: string;
+			type?: string;
+			senderId?: string;
+			from?: string;
+			to?: string;
+			limit?: number;
+			cursor?: number;
+		} = {}
+	) => {
 		const query = new URLSearchParams();
 		if (params.projectId) query.set('project_id', params.projectId);
 		if (params.type) query.set('type', params.type);
+		if (params.senderId) query.set('sender_id', params.senderId);
+		if (params.from) query.set('from', params.from);
+		if (params.to) query.set('to', params.to);
+		if (params.cursor) query.set('cursor', String(params.cursor));
 		query.set('limit', String(params.limit ?? 100));
 		return request<LogsResponse>(`/api/logs?${query.toString()}`);
 	},
@@ -309,18 +394,55 @@ export const api = {
 	listMessages: (projectId: number, limit = 50) =>
 		request<Message[]>(`/api/messages/${projectId}?limit=${limit}`),
 
-	exportLogs: (projectId: number) =>
-		request<ExportResult>('/api/logs/export', { method: 'POST', body: { project_id: projectId } }),
+	/**
+	 * 导出为 JSON 报告。
+	 *
+	 * from/to 是**必填**的：后端此前对整个项目历史做无条件 Find，既没有时间
+	 * 边界也没有行数上限，一次误点就可能把几百 MB 灌进内存。
+	 */
+	exportLogs: (projectId: number, from: string, to: string) =>
+		request<ExportResult>('/api/logs/export', {
+			method: 'POST',
+			body: { project_id: projectId, from, to }
+		}),
 
-	exportLogsCsv: (projectId: number) =>
+	exportLogsCsv: (projectId: number, from: string, to: string) =>
 		request<string>('/api/logs/export/csv', {
 			method: 'POST',
-			body: { project_id: projectId },
+			body: { project_id: projectId, from, to },
 			raw: true
 		}),
 
 	cleanupLogs: (days: number) =>
 		request<CleanupResult>('/api/logs/cleanup', { method: 'POST', body: { days } }),
+
+	// --- 操作审计（B4） ---
+	/**
+	 * 操作审计记录。
+	 *
+	 * 与 listLogs 是两回事：listLogs 读的是 messages 表（谁切了台、谁发了
+	 * 内部消息），这里读的是 audit_logs（谁改了别人的角色、谁清掉了日志）。
+	 * 这个页面以前叫「日志审计」，显示的其实是前者。
+	 */
+	auditLogs: (
+		params: {
+			action?: string;
+			actorId?: string;
+			from?: string;
+			to?: string;
+			limit?: number;
+			cursor?: number;
+		} = {}
+	) => {
+		const query = new URLSearchParams();
+		if (params.action) query.set('action', params.action);
+		if (params.actorId) query.set('actor_id', params.actorId);
+		if (params.from) query.set('from', params.from);
+		if (params.to) query.set('to', params.to);
+		if (params.cursor) query.set('cursor', String(params.cursor));
+		query.set('limit', String(params.limit ?? 100));
+		return request<AuditLogsResponse>(`/api/admin/audit-logs?${query.toString()}`);
+	},
 
 	// --- plugins ---
 	listPlugins: () => request<PluginInfo[]>('/api/plugins'),
