@@ -12,6 +12,7 @@ import { resolve } from '$app/paths';
 import type {
 	ApplyUpdateResult,
 	AuthUser,
+	ChangePasswordResponse,
 	CleanupResult,
 	ExportResult,
 	HealthStatus,
@@ -169,6 +170,28 @@ export const api = {
 	}) => request<AuthUser>('/api/auth/register', { method: 'POST', body: payload }),
 
 	profile: () => request<AuthUser>('/api/auth/profile'),
+
+	/**
+	 * 修改显示名与邮箱。
+	 *
+	 * 两个字段都可以传空串表示「清空」，所以不要用 falsy 判断来省略参数——
+	 * 后端靠字段是否出现来区分「清空」与「不动」。
+	 */
+	updateProfile: (payload: { display_name?: string; email?: string }) =>
+		request<AuthUser>('/api/auth/profile', { method: 'PUT', body: payload }),
+
+	/**
+	 * 修改密码。后端会递增 token_version 让所有旧令牌失效，因此返回新令牌，
+	 * 调用方必须立刻换掉本地存的那一份，否则当前设备会被自己踢下线。
+	 *
+	 * 当前密码错误时后端返回 400（不是 401）：401 会触发本文件的
+	 * handleUnauthorized，把用户直接踢回登录页。
+	 */
+	changePassword: (currentPassword: string, newPassword: string) =>
+		request<ChangePasswordResponse>('/api/auth/password', {
+			method: 'PUT',
+			body: { current_password: currentPassword, new_password: newPassword }
+		}),
 
 	// --- status & health ---
 	status: () => request<ServerStatus>('/api/status'),

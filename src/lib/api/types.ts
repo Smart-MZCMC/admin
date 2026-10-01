@@ -58,6 +58,26 @@ export interface AuthUser {
 	username: string;
 	display_name: string;
 	role: Role;
+	/**
+	 * 邮箱，同时是 WeAvatar 头像的取值依据。后端写入前已归一化为小写去空格，
+	 * 前端不必再处理大小写。
+	 */
+	email: string;
+	/**
+	 * 头像地址，由后端算好（前端不能算 MD5：Web Crypto 只有 SHA 系列）。
+	 *
+	 * 空串表示未设置邮箱，前端据此回退到首字母圆圈，而不是去请求一个
+	 * 无意义的 URL。
+	 */
+	avatar_url: string;
+	/** 后端算好的中文角色名。 */
+	role_label: string;
+}
+
+/** PUT /api/auth/password — 改密后旧令牌全部失效，故返回新令牌。 */
+export interface ChangePasswordResponse {
+	token: string;
+	user: AuthUser;
 }
 
 export interface LoginResponse {

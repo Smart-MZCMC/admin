@@ -47,6 +47,34 @@ function createAuthStore() {
 		return result.user;
 	}
 
+	/**
+	 * 保存更新后的用户信息。
+	 *
+	 * 改邮箱或显示名后要同步到本地状态，否则界面上的头像与名字会一直显示
+	 * 旧值，得等下次刷新页面才更新。
+	 */
+	async function updateProfile(payload: {
+		display_name?: string;
+		email?: string;
+	}): Promise<AuthUser> {
+		const updated = await api.updateProfile(payload);
+		user = updated;
+		return updated;
+	}
+
+	/**
+	 * 修改密码。
+	 *
+	 * 后端会递增 token_version 让所有旧令牌失效，同时返回一个新令牌。
+	 * 必须立刻用新的覆盖旧的——否则当前设备会被自己刚改的密码踢到登录页。
+	 */
+	async function changePassword(currentPassword: string, newPassword: string): Promise<AuthUser> {
+		const result = await api.changePassword(currentPassword, newPassword);
+		setToken(result.token);
+		user = result.user;
+		return result.user;
+	}
+
 	function logout(): void {
 		clearToken();
 		user = null;
@@ -84,6 +112,8 @@ function createAuthStore() {
 		},
 		restore,
 		login,
+		updateProfile,
+		changePassword,
 		logout
 	};
 }

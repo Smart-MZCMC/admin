@@ -7,13 +7,15 @@
 	import { roleLabel } from '$lib/roles';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
+	import Avatar from './Avatar.svelte';
 	import Icon from './Icon.svelte';
 	import type { IconName } from './icons';
 
 	let { children } = $props();
 
 	/** Typed so `resolve()` accepts these without a cast. */
-	type NavPath = '/' | '/users' | '/projects' | '/assign' | '/logs' | '/plugins' | '/settings';
+	type NavPath =
+		'/' | '/users' | '/projects' | '/assign' | '/logs' | '/plugins' | '/settings' | '/profile';
 
 	interface NavItem {
 		path: NavPath;
@@ -93,11 +95,22 @@
 	}
 
 	const current = $derived(normalise(page.url.pathname));
+	/**
+	 * 不进侧边栏的页面，单独给面包屑一个名字。
+	 *
+	 * 个人中心按设计只在用户菜单里，不占侧边栏位置，所以 flatNav 里没有它，
+	 * 而面包屑找不到时会回退成「总览」——在个人中心页上显示「总览」是错的。
+	 */
+	const extraPageLabels: Record<string, string> = { '/profile': '个人中心' };
+
 	const currentLabel = $derived(
-		flatNav.find((item) => normalise(resolve(item.path)) === current)?.label ?? '总览'
+		flatNav.find((item) => normalise(resolve(item.path)) === current)?.label ??
+			extraPageLabels[current] ??
+			'总览'
 	);
 	const displayName = $derived(auth.user?.display_name || auth.user?.username || '管理员');
-	const initials = $derived(displayName.slice(0, 1).toUpperCase());
+	/** 后端算好的 WeAvatar 地址；空串表示没填邮箱，由 Avatar 组件回退到首字母。 */
+	const avatarUrl = $derived(auth.user?.avatar_url ?? '');
 
 	async function refreshStatus() {
 		try {
@@ -320,11 +333,7 @@
 			<div
 				class="flex items-center gap-2.5 rounded-lg border border-border bg-bg-overlay/70 px-2.5 py-2"
 			>
-				<span
-					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-[11px] font-semibold text-white"
-				>
-					{initials}
-				</span>
+				<Avatar url={avatarUrl} name={displayName} size={32} class="text-[11px]" />
 				<span class="min-w-0 flex-1">
 					<span class="block truncate text-[12px] font-medium text-fg">{displayName}</span>
 					<span class="mt-0.5 block text-[10.5px] text-fg-muted">
@@ -471,11 +480,7 @@
 								{auth.isAdmin ? '管理员' : '成员'}
 							</span>
 						</span>
-						<span
-							class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-[11px] font-semibold text-white"
-						>
-							{initials}
-						</span>
+						<Avatar url={avatarUrl} name={displayName} size={32} class="text-[11px]" />
 						<Icon name="chevron-down" size={14} class="hidden text-fg-faint sm:block" />
 					</button>
 
@@ -497,6 +502,18 @@
 								</div>
 							</div>
 							<div class="p-1">
+								<!--
+									个人中心按设计不放进侧边栏（它是「我的账号」，不是系统功能），
+									所以入口放在这里。面包屑的名字在 extraPageLabels 里单独给。
+								-->
+								<button
+									type="button"
+									onclick={() => void goto(resolve('/profile'))}
+									class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12.5px] text-fg-muted transition-colors hover:bg-primary-soft hover:text-primary-ink"
+								>
+									<Icon name="users" size={15} />
+									个人中心
+								</button>
 								<button
 									type="button"
 									onclick={logout}
