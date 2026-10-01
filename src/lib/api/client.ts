@@ -105,6 +105,7 @@ interface RequestOptions {
  */
 const NO_SESSION_PATHS = new Set([
 	'/api/auth/login',
+	'/api/auth/admin-login',
 	'/api/auth/register',
 	'/api/setup/status',
 	'/api/setup/apply'
@@ -181,6 +182,24 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 export const api = {
 	// --- auth ---
+	/**
+	 * 管理后台网页的登录入口。
+	 *
+	 * 走 /api/auth/admin-login 而不是 /api/auth/login：后者是给原生客户端
+	 * （导播端/采访端/解说端）用的，不该按网页后台的门槛拦——导播账号本来就
+	 * 该能登录，它用的是原生界面。admin-login 会在口令校验通过之后额外要求
+	 * 角色达到后端的 authz.admin_min_role，不够则返回 403 并说明原因。
+	 *
+	 * 于是「导播能不能进后台」这条策略只由后端一处决定，前端不自己写一份
+	 * 角色门槛表（那种表加角色时必然漏改）。
+	 */
+	adminLogin: (username: string, password: string) =>
+		request<LoginResponse>('/api/auth/admin-login', {
+			method: 'POST',
+			body: { username, password }
+		}),
+
+	/** 保留给仍需通用登录的调用点（例如诊断脚本）。网页界面一律用 adminLogin。 */
 	login: (username: string, password: string) =>
 		request<LoginResponse>('/api/auth/login', { method: 'POST', body: { username, password } }),
 

@@ -4,7 +4,8 @@
 	import { resolve } from '$app/paths';
 	import { api } from '$lib/api/client';
 	import type { Role } from '$lib/api/types';
-	import { roleLabel } from '$lib/roles';
+	import { roleLabel, roleShortLabel } from '$lib/roles';
+	import { minRoleFor } from '$lib/permissions';
 	import { appVersion } from '$lib/version';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
@@ -24,23 +25,29 @@
 		label: string;
 		icon: IconName;
 		/**
-		 * 访问该页面所需的最低角色等级，缺省表示「登录即可」。
+		 * 访问该页面所需的最低角色等级。
 		 *
-		 * 与后端守卫用同一套等级语义（models.Role 的 Level）。前端据此隐藏
-		 * 入口，避免用户点进去才吃一个 403；真正的权限判定仍在后端，这里
-		 * 只是不给出无意义的入口。
+		 * 构造时从 $lib/permissions 的 PAGE_PERMISSIONS 填进来，不在这里
+		 * 写死——路由守卫用的是同一张表，两边必须一致。
 		 */
 		min?: Role;
 	}
 
+	/**
+	 * 侧边栏分组。
+	 *
+	 * 门槛不在这里写死，而是去 PAGE_PERMISSIONS 查——那份表同时被路由守卫
+	 * 使用，两边因此不可能对不上。写成两份的话，就会出现「菜单里没有这个
+	 * 入口、但地址栏输进去能打开」的页面。
+	 */
 	const navGroups: { label: string; items: NavItem[] }[] = [
 		{
 			label: '工作空间',
 			items: [
 				{ path: '/', label: '总览', icon: 'overview' },
-				{ path: '/users', label: '用户管理', icon: 'users', min: 'admin' },
-				{ path: '/projects', label: '项目管理', icon: 'projects', min: 'admin' },
-				{ path: '/assign', label: '权限分配', icon: 'assign', min: 'admin' }
+				{ path: '/users', label: '用户管理', icon: 'users' },
+				{ path: '/projects', label: '项目管理', icon: 'projects' },
+				{ path: '/assign', label: '权限分配', icon: 'assign' }
 			]
 		},
 		{
@@ -48,18 +55,19 @@
 			items: [
 				{ path: '/logs', label: '日志审计', icon: 'logs' },
 				{ path: '/plugins', label: '插件与统计', icon: 'plugins' },
-				// 系统信息与在线更新会替换服务自身的可执行文件，只给超管。
-				{ path: '/settings', label: '系统设置', icon: 'settings', min: 'super_admin' }
+				{ path: '/settings', label: '系统设置', icon: 'settings' }
 			]
 		}
 	];
 
-	/** 按当前角色过滤后的导航。 */
+	/** 按当前角色过滤后的导航。门槛统一从 PAGE_PERMISSIONS 取。 */
 	const visibleNavGroups = $derived(
 		navGroups
 			.map((group) => ({
 				...group,
-				items: group.items.filter((item) => !item.min || auth.atLeast(item.min))
+				items: group.items
+					.map((item) => ({ ...item, min: minRoleFor(item.path) }))
+					.filter((item) => !item.min || auth.atLeast(item.min))
 			}))
 			.filter((group) => group.items.length > 0)
 	);
@@ -113,6 +121,16 @@
 			'总览'
 	);
 	const displayName = $derived(auth.user?.display_name || auth.user?.username || '管理员');
+	/**
+	 * 右上角的角色标签。
+	 *
+	 * 这里原来写的是 `auth.isAdmin ? '管理员' : '成员'` —— 六个角色被压成两档，
+	 * 超管、负责人、前期、后勤全显示成「成员」。这类三元表达式在 AppShell、
+	 * 用户页、权限分配页各有一份，加角色时必然漏改，所以统一走 roleShortLabel。
+	 *
+	 * 用短标签而不是全称：这一格宽度只有百来像素，「超级管理员」会把它撑变形。
+	 */
+	const roleTag = $derived(roleShortLabel(auth.user?.role ?? ''));
 	/** 后端算好的 WeAvatar 地址；空串表示没填邮箱，由 Avatar 组件回退到首字母。 */
 	const avatarUrl = $derived(auth.user?.avatar_url ?? '');
 
@@ -315,8 +333,14 @@
 			{/each}
 		</nav>
 
-		<div class="shrink-0 border-t border-border px-3 py-3">
-			<div class="flex items-center gap-2 px-1.5 pb-2.5">
+		<!--
+			这里原本还有一张「头像 + 姓名 + 角色 + 退出」的卡片，与右上角的
+			用户菜单完全重复，而且两处的角色文案各写了一份三元表达式，角色一多
+			就会显示得不一样。身份只保留右上角一处，退出登录也走那个菜单。
+			底下这一块专职显示服务状态。
+		-->
+		<div class="shrink-0 border-t border-border px-4 py-3">
+			<div class="flex items-center gap-2">
 				<span class="relative flex h-2 w-2 shrink-0">
 					{#if online !== null}
 						<span
@@ -332,37 +356,17 @@
 				<span class="truncate text-[11px] text-fg-muted">
 					{online === null ? '服务未连接' : `在线客户端 ${online}`}
 				</span>
-				{#if version}
-					<!--
-						两个版本都标出来。以前这里只显示后端版本，看起来像是本端版本，
-						版本不一致时无从判断到底该升哪一边。
-					-->
-					<span class="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
-						本端 v{appVersion} · 后端 v{version}
-					</span>
-				{/if}
 			</div>
-
-			<div
-				class="flex items-center gap-2.5 rounded-lg border border-border bg-bg-overlay/70 px-2.5 py-2"
-			>
-				<Avatar url={avatarUrl} name={displayName} size={32} class="text-[11px]" />
-				<span class="min-w-0 flex-1">
-					<span class="block truncate text-[12px] font-medium text-fg">{displayName}</span>
-					<span class="mt-0.5 block text-[10.5px] text-fg-muted">
-						{auth.isAdmin ? '系统管理员' : '运营成员'}
-					</span>
-				</span>
-				<button
-					type="button"
-					title="退出登录"
-					aria-label="退出登录"
-					onclick={logout}
-					class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-fg-faint transition-colors hover:bg-bg-surface hover:text-fg"
-				>
-					<Icon name="logout" size={15} />
-				</button>
-			</div>
+			<!--
+				版本单独一行。原来与「在线客户端」挤在同一行，用 ml-auto 推到右边，
+				于是「本端 v1.4.0 · 后端 v1.4.0」这一串在小侧栏里会先被截断，
+				而后端版本恰恰是最需要看清的那个。
+			-->
+			{#if version}
+				<div class="mt-1.5 pl-4 font-mono text-[10px] text-fg-faint">
+					本端 v{appVersion} · 后端 v{version}
+				</div>
+			{/if}
 		</div>
 	</aside>
 
@@ -458,22 +462,12 @@
 			</div>
 
 			<div class="ml-auto flex shrink-0 items-center gap-1.5">
-				<div class="relative">
-					<button
-						type="button"
-						title="系统状态"
-						aria-label="系统状态"
-						onclick={() => (userMenuOpen = false)}
-						class="relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
-					>
-						<Icon name="bell" size={17} />
-						<span
-							class="absolute top-2 right-2.5 h-1.5 w-1.5 rounded-full {online === null
-								? 'bg-warning'
-								: 'bg-success'}"
-						></span>
-					</button>
-				</div>
+				<!--
+					这里原来有个铃铛「系统状态」按钮：onclick 只有一句
+					`(userMenuOpen = false)`，点下去除了关掉用户菜单什么也不做，
+					却带一个状态点，看起来像个能点的通知入口。
+					在线数与版本已经由侧边栏底部承担，这里不再放一个点不动的按钮。
+				-->
 
 				<div class="mx-1 hidden h-5 border-l border-border sm:block"></div>
 
@@ -489,9 +483,7 @@
 							<span class="block max-w-32 truncate text-[11.5px] font-medium text-fg"
 								>{displayName}</span
 							>
-							<span class="block text-[10px] text-fg-faint">
-								{auth.isAdmin ? '管理员' : '成员'}
-							</span>
+							<span class="block text-[10px] text-fg-faint">{roleTag}</span>
 						</span>
 						<Avatar url={avatarUrl} name={displayName} size={32} class="text-[11px]" />
 						<Icon name="chevron-down" size={14} class="hidden text-fg-faint sm:block" />

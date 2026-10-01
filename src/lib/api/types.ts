@@ -380,10 +380,18 @@ export interface CleanupResult {
 	count: number;
 }
 
-/** GET /api/setup/status — 全新部署的初始化向导 */
-export interface SetupStatus {
+/**
+ * GET /api/setup/status — 全新部署的初始化向导
+ *
+ * 做成判别联合而不是「所有字段 optional」，是因为后端只在 needs_setup 为 true
+ * 时才下发部署细节（已初始化后整体停发，见 setup_controller.go 的 Status）。
+ * 写成 optional 的话，模板里 `status.database.path` 会被静默允许，
+ * 于是在已初始化的系统上渲染出一堆 undefined——那正是这次要堵的泄露，
+ * 只不过从服务端搬到了前端。判别联合让 svelte-check 在每个使用点强制收窄。
+ */
+interface SetupStatusPending {
 	/** 系统是否还没初始化。true 时除 /api/setup/* 外的接口都会返回 503。 */
-	needs_setup: boolean;
+	needs_setup: true;
 	version: string;
 	/** 探测到的内网 IP，可能为空（无可用网卡）。 */
 	lan_ip: string;
@@ -415,6 +423,17 @@ export interface SetupStatus {
 		admin_display_name: string;
 	};
 }
+
+/** 已初始化：后端只回这两个字段，部署细节一概不下发。 */
+interface SetupStatusReady {
+	needs_setup: false;
+	version: string;
+}
+
+export type SetupStatus = SetupStatusPending | SetupStatusReady;
+
+/** 收窄后的形态：只有「还没初始化」时部署细节才存在。模板里统一走这个变量。 */
+export type SetupDetails = SetupStatusPending;
 
 /** POST /api/setup/apply 的请求体 */
 export interface SetupApplyPayload {

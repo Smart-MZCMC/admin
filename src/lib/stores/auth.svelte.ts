@@ -40,7 +40,9 @@ function createAuthStore() {
 	}
 
 	async function login(username: string, password: string): Promise<AuthUser> {
-		const result = await api.login(username, password);
+		// 走 adminLogin：它比通用登录多一道角色门槛，「谁不能进后台」由后端
+		// 的 ADMIN_MIN_ROLE 一处决定，前端不复制一份角色表。
+		const result = await api.adminLogin(username, password);
 		setToken(result.token);
 		user = result.user;
 		loading = false;

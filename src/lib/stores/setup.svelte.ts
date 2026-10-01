@@ -39,7 +39,10 @@ function createSetupStore() {
 
 	/** 把它记成「已初始化」，避免向导完成后布局还往回跳。 */
 	function markDone(): void {
-		if (status) status = { ...status, needs_setup: false };
+		// 不能写成 `{ ...status, needs_setup: false }`：判别联合里 needs_setup
+		// 变了就意味着「部署细节全部作废」，把旧 details 一起带过去会让类型
+		// 失去约束（也就等于假装后端在已初始化后仍会下发那些字段）。
+		if (status) status = { needs_setup: false, version: status.version };
 	}
 
 	/** 未初始化时把用户送到向导页；已经在向导页就什么都不做。 */

@@ -79,12 +79,22 @@
 		displayName = snapshot.defaults.admin_display_name;
 	});
 
+	/**
+	 * 只有「还没初始化」时才存在的部署细节。
+	 *
+	 * 后端在已初始化后不再下发这些字段（setup_controller.go 的 Status），
+	 * 而 Svelte 模板不做类型收窄——`{#if status.needs_setup}` 里的
+	 * `status.database.path` 编译器是管不着的。所以在这里收窄一次，
+	 * 模板统一读 details，字段缺失就会在 svelte-check 里报出来。
+	 */
+	const details = $derived(status?.needs_setup ? status : null);
+
 	/** 监听地址可选项：两个常用值 + 后端探测到的当前值。 */
 	const hostOptions = $derived.by(() => {
 		// 不用 Set：Svelte 的 ESLint 规则要求响应式代码里用 SvelteSet，
 		// 而这里最多三个元素，数组去重更直白。
 		const values = ['0.0.0.0', '127.0.0.1'];
-		const current = status?.defaults.app_host?.trim();
+		const current = details?.defaults.app_host?.trim();
 		if (current && !values.includes(current)) values.push(current);
 		return values;
 	});
@@ -97,8 +107,13 @@
 				: `只在 ${appHost} 上监听。`
 	);
 
-	/** 表单是否还能提交：.env 不可写时提前挡住，别让用户白填一遍。 */
-	const envWritable = $derived(status?.env.writable !== false);
+	/**
+	 * 表单是否还能提交：.env 不可写时提前挡住，别让用户白填一遍。
+	 *
+	 * 读 details 而不是 status：details 为 null 就意味着后端没给部署细节，
+	 * 那种情况下不该把按钮禁掉——真正要拦的是「后端明确说了不可写」。
+	 */
+	const envWritable = $derived(details?.env.writable !== false);
 
 	function validate(): string {
 		if (!appName.trim()) return '请填写系统名称';

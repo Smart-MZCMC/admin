@@ -2,7 +2,12 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
 	import type { Role, RoleInfo, User } from '$lib/api/types';
-	import { roleAtLeast, roleLabel, roleState } from '$lib/roles';
+	import {
+		roleAtLeast,
+		roleLabel,
+		roleState,
+		switchableRoles as switchableRolesFor
+	} from '$lib/roles';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -33,13 +38,17 @@
 	const grantableRoles = $derived(allRoles.filter((r) => auth.atLeast(r.value)));
 
 	/**
-	 * 某个用户可以被改成哪些角色。
+	 * 某个用户可以被改成哪些角色（判定逻辑在 $lib/roles 里，好单测）。
 	 *
-	 * 两道过滤：只能授予不高于自己的（后端 guardGrant 会再挡一次），
-	 * 以及排除当前角色本身（选「改为…」却什么都不改没有意义）。
+	 * 这里只负责把后端下发的角色清单接上去。
 	 */
-	function switchableRoles(current: Role): RoleInfo[] {
-		return grantableRoles.filter((r) => r.value !== current);
+	function switchableRoles(target: User): RoleInfo[] {
+		const allowed = switchableRolesFor(
+			auth.user,
+			target,
+			allRoles.map((r) => r.value)
+		);
+		return allRoles.filter((r) => allowed.includes(r.value));
 	}
 
 	// delete confirmation
@@ -182,7 +191,7 @@
 						写「设为管理员 / 设为导播」两个按钮既覆盖不了，其余四个
 						还漏在界面上。而且下拉能天然按「我能授予什么」过滤。
 					-->
-					{#if switchableRoles(user.role).length > 0 && roleAtLeast(user.role, 'admin')}
+					{#if switchableRoles(user).length > 0}
 						<select
 							class="h-8 rounded-[var(--radius-form)] border border-border bg-bg-surface px-2 text-[12px] text-fg transition-colors hover:border-border-strong focus:border-primary focus:ring-2 focus:ring-primary/15 focus:outline-none"
 							value=""
@@ -193,7 +202,7 @@
 							}}
 						>
 							<option value="" disabled>改为…</option>
-							{#each switchableRoles(user.role) as r (r.value)}
+							{#each switchableRoles(user) as r (r.value)}
 								<option value={r.value}>{r.label}</option>
 							{/each}
 						</select>

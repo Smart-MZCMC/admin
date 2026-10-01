@@ -70,7 +70,7 @@
 		{ key: 'id', label: 'ID', width: '4.5rem' },
 		{ key: 'created_at', label: '时间', width: '12rem' },
 		{ key: 'project_id', label: '项目', width: '11rem' },
-		{ key: 'sender_id', label: '发送者', width: '6.5rem' },
+		{ key: 'sender_id', label: '发送者', width: '11rem' },
 		{ key: 'type', label: '类型', width: '10rem' },
 		{ key: 'content', label: '内容' }
 	];
@@ -495,7 +495,23 @@
 						<span class="text-fg">{projectLabel(message.project_id)}</span>
 						<span class="ml-1 font-mono text-[11px] text-fg-faint">#{message.project_id}</span>
 					{:else if column.key === 'sender_id'}
-						<span class="font-mono text-[11.5px] text-fg-muted">#{message.sender_id}</span>
+						<!--
+							显示昵称而不是光一个 #id。协调日志里发言的不止导播
+							（解说、包装、采访都能发），一列数字编号没法判断是谁。
+							后端在 /api/logs 里预加载了 Sender。
+						-->
+						{#if message.sender}
+							<span class="text-fg">{message.sender.display_name || message.sender.username}</span>
+							<span class="ml-1 font-mono text-[11px] text-fg-faint">#{message.sender_id}</span>
+						{:else}
+							<!--
+								取不到多半是账号已被删除（外键关联查不到就是 nil）。
+								这时退回 #id：显示「未知」会让人以为系统没记录发送者，
+								而实际上有 id、只是人没了。
+							-->
+							<span class="text-fg-faint">已注销</span>
+							<span class="ml-1 font-mono text-[11px] text-fg-faint">#{message.sender_id}</span>
+						{/if}
 					{:else if column.key === 'type'}
 						<Tag text={message.type} state={typeState[message.type] ?? 'neutral'} size="sm" />
 					{:else if column.key === 'content'}
