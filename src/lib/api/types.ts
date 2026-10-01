@@ -288,6 +288,55 @@ export interface UpdateStatus {
 	size?: number;
 	/** 连不上更新源等原因。不是 HTTP 错误，所以这里有值时请求仍是 200。 */
 	error?: string;
+	/** 资产下载镜像前缀；空表示直接从 GitHub 下载。 */
+	download_mirror?: string;
+}
+
+/**
+ * GET /api/system/update/progress — 在线更新的实时进度
+ *
+ * 更新跑在服务端后台，这里是它唯一的观察窗口。`stage=idle` 表示当前没有任务
+ * 在跑（不是错误），`finished` 表示可以停止轮询了。
+ */
+export type UpdateStage =
+	| 'idle'
+	| 'fetching'
+	| 'downloading'
+	| 'verifying'
+	| 'extracting'
+	| 'replacing'
+	| 'migrating'
+	| 'finished'
+	| 'failed';
+
+export interface UpdateProgress {
+	stage: UpdateStage;
+	message?: string;
+	/** 已下载/已处理字节数。下载阶段有值，其余阶段为 0。 */
+	done: number;
+	total: number;
+	/** 0..100。total 未知（镜像没给 Content-Length）时为 0。 */
+	percent: number;
+	steps?: string[];
+	/** 终态标志，为 true 时前端应停止轮询。 */
+	finished: boolean;
+	failed: boolean;
+	error?: string;
+	result?: {
+		version: string;
+		bytes: number;
+		sha256: string;
+		arch: string;
+		staged: boolean;
+		replaced: boolean;
+		migrated: boolean;
+		backup_path?: string;
+		staged_path?: string;
+		steps: string[];
+		restart_hint?: string;
+	};
+	started_at: string;
+	updated_at: string;
 }
 
 /** POST /api/system/update/apply — 仅超级管理员 */

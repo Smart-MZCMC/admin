@@ -7,9 +7,15 @@
 	 * 并显式带上刚看到的版本号。后端会比对该版本号，避免「检查时是 1.2.0、
 	 * 应用时装上 1.3.0」。
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/api/client';
-	import type { HealthStatus, SystemInfo, UpdateStatus } from '$lib/api/types';
+	import type {
+		HealthStatus,
+		SystemInfo,
+		UpdateProgress,
+		UpdateStage,
+		UpdateStatus
+	} from '$lib/api/types';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -21,11 +27,160 @@
 	let info = $state<SystemInfo | null>(null);
 	let health = $state<HealthStatus | null>(null);
 	let update = $state<UpdateStatus | null>(null);
+	let progress = $state<UpdateProgress | null>(null);
 
 	let loading = $state(true);
 	let checking = $state(false);
 	let applying = $state(false);
 	let confirmOpen = $state(false);
+
+	/** 轮询进度用的定时器。空闲时必须是 null，否则会一直空转打接口。 */
+	let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/**
+	 * 阶段 → 给运维看的中文名。
+	 *
+	 * 写死在前端而不是让后端下发：这些词是界面语言，不是运行时状态。
+	 * 后端下发的话换一次界面文案就得发一次版。
+	 */
+	const STAGE_LABELS: Record<UpdateStage, string> = {
+		idle: '空闲',
+		fetching: '查询更新源',
+		downloading: '下载中',
+		verifying: '校验 sha256',
+		extracting: '解压可执行文件',
+		replacing: '备份并替换程序',
+		migrating: '执行数据库迁移',
+		finished: '已完成',
+		failed: '失败'
+	};
+
+	/** 有任务在跑（含刚失败还没重新发起的那次）。决定要不要显示进度面板。 */
+	const running = $derived(
+		progress !== null &&
+			progress.stage !== 'idle' &&
+			progress.stage !== 'finished' &&
+			!progress.failed
+	);
+
+	/**
+	 * 正在重启：替换已经完成，但进程还没退。
+	 *
+	 * 这一段界面拿不到任何来自服务端的响应——连接会直接被掐断。所以不能
+	 * 靠「请求失败」来判断，只能自己进入这个状态并轮询 /api/status，
+	 * 等服务重新起来为止。
+	 */
+	const restarting = $derived(progress?.stage === 'finished' && progress.result?.replaced === true);
+
+	/**
+	 * 下载速度（字节/秒）。
+	 *
+	 * 只在下载阶段有意义，其余阶段 done 不再变化，算出来的速度是 0。
+	 * 采样点是上一次轮询，所以第一次拿到进度时算不出速度——显示不出来
+	 * 比显示一个假数字好。
+	 */
+	let speed = $state<number | null>(null);
+	let lastSample: { done: number; at: number } | null = null;
+
+	function computeSpeed(next: UpdateProgress): number | null {
+		const now = Date.now();
+		if (next.stage !== 'downloading' || next.total <= 0) {
+			lastSample = null;
+			return null;
+		}
+		const prev = lastSample;
+		lastSample = { done: next.done, at: now };
+		if (!prev) return null;
+		const dt = (now - prev.at) / 1000;
+		// 间隔太短时字节差可能是 0，算出来的速度会离谱地大或除出噪声。
+		if (dt < 0.2) return null;
+		return Math.max(0, (next.done - prev.done) / dt);
+	}
+
+	function humanBytes(n: number): string {
+		if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+		if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
+		return `${n} B`;
+	}
+
+	function stopPolling() {
+		if (pollTimer) {
+			clearTimeout(pollTimer);
+			pollTimer = null;
+		}
+	}
+
+	/**
+	 * 轮询一次进度并决定要不要继续。
+	 *
+	 * 串行而不是 setInterval：上一次请求还没回来就不该再发一次——更新期间
+	 * 服务本身正忙，堆积请求只会让它更慢。
+	 */
+	async function pollOnce(): Promise<void> {
+		try {
+			const next = await api.updateProgress();
+			progress = next;
+			const s = computeSpeed(next);
+			if (s !== null) speed = s;
+
+			if (next.finished && !next.failed) {
+				stopPolling();
+				if (next.result?.replaced) {
+					// 进程即将退出，接下来只能靠 /api/status 探活。
+					startHealthPoll();
+					return;
+				}
+				feedback.success(`新版本 ${next.result?.version ?? ''} 已下载并校验通过`);
+				confirmOpen = false;
+				return;
+			}
+			if (next.failed) {
+				stopPolling();
+				feedback.error(next.error || '更新失败');
+				return;
+			}
+			pollTimer = setTimeout(() => void pollOnce(), 800);
+		} catch (err) {
+			// 请求失败本身也是信息：可能正在重启、也可能网络断了。
+			// 两种都不该立刻判定失败放弃，否则用户会以为更新失败了。
+			if (restarting) return;
+			stopPolling();
+			feedback.error(err instanceof Error ? err.message : '获取更新进度失败');
+		}
+	}
+
+	/**
+	 * 替换完成后探活，等服务重新起来。
+	 *
+	 * 这是整个流程里唯一「服务端完全不响应」的窗口，只能靠反复试 /api/status
+	 * 来判断重启结束。设上限是为了避免 systemd 没能拉起时永远转圈。
+	 */
+	let healthTimer: ReturnType<typeof setTimeout> | null = null;
+	let healthTries = 0;
+
+	function startHealthPoll() {
+		healthTries = 0;
+		const tick = async () => {
+			healthTries += 1;
+			try {
+				await api.health();
+				if (healthTimer) clearTimeout(healthTimer);
+				healthTimer = null;
+				feedback.success('服务已恢复运行');
+				await load();
+				return;
+			} catch {
+				if (healthTries >= 30) {
+					if (healthTimer) clearTimeout(healthTimer);
+					healthTimer = null;
+					feedback.error('服务 30 次探测都没响应，请检查进程管理器与启动日志');
+					return;
+				}
+			}
+			healthTimer = setTimeout(() => void tick(), 2000);
+		};
+		void tick();
+	}
 
 	/** 把秒数换成「3 天 4 小时」这种可读形式。 */
 	function uptime(seconds: number): string {
@@ -76,22 +231,35 @@
 		if (!update?.latest_version) return;
 		applying = true;
 		try {
-			const res = await api.applyUpdate(update.latest_version);
-			if (res.replaced) {
-				// 进程马上要退出了，这句提示得让人看见。
-				feedback.success(`已更新到 ${res.version}，服务正在重启…${res.restart_hint ?? ''}`);
-			} else {
-				feedback.success(`新版本 ${res.version} 已下载并校验通过`);
-			}
+			await api.applyUpdate(update.latest_version);
+			// 后端已立刻返回，真正的结果要靠轮询。
 			confirmOpen = false;
+			speed = null;
+			lastSample = null;
+			progress = {
+				stage: 'fetching',
+				done: 0,
+				total: 0,
+				percent: 0,
+				finished: false,
+				failed: false,
+				started_at: new Date().toISOString(),
+				updated_at: new Date().toISOString()
+			};
+			void pollOnce();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '更新失败');
+			feedback.error(err instanceof Error ? err.message : '启动更新失败');
 		} finally {
 			applying = false;
 		}
 	}
 
 	onMount(() => void load());
+
+	onDestroy(() => {
+		stopPolling();
+		if (healthTimer) clearTimeout(healthTimer);
+	});
 </script>
 
 <svelte:head><title>系统设置 - 管理后台</title></svelte:head>
@@ -247,9 +415,111 @@
 						>{update.asset_name}</span
 					>
 				</p>
+
+				<!--
+					镜像。校园网里最常见的故障就是这一条：api.github.com 有时能通，
+					所以「检查更新」显示一切正常，但资产要走 github.com 的下载
+					域名，那个域名经常被 TCP 阻断——表现为一键更新就卡死。
+					没配镜像时明确说出来，让人能立刻对症下药。
+				-->
+				<p class="text-[12px] text-fg-faint">
+					下载镜像：{#if update.download_mirror}<span class="font-mono"
+							>{update.download_mirror}</span
+						>{:else}<span class="text-warning-ink">未配置（直连 GitHub，校园网内可能无法下载）</span
+						>{/if}
+				</p>
 			</div>
 		{/if}
 	</Panel>
+
+	<!--
+		进度面板。与上面的「可更新」区块分开，因为它的出现条件不同：
+		有任务在跑、刚失败、或者正在等服务重启——这三种都不是「有可用更新」。
+		Panel 不接受 class，间距靠外层这个 div 给。
+	-->
+	{#if progress && progress.stage !== 'idle'}
+		<div class="mt-4">
+			<Panel
+				title="更新进度"
+				description={restarting
+					? '替换已完成，服务正在重启。等待期间客户端会短暂断开，属正常现象。'
+					: progress.message || STAGE_LABELS[progress.stage]}
+			>
+				<div class="space-y-3">
+					<div class="flex items-center justify-between gap-3 text-[12.5px]">
+						<span class="text-fg-muted">{STAGE_LABELS[progress.stage]}</span>
+						{#if progress.stage === 'downloading' && progress.total > 0}
+							<span class="font-mono text-fg">
+								{humanBytes(progress.done)} / {humanBytes(progress.total)}
+								{#if speed !== null}
+									· {humanBytes(speed)}/s
+								{/if}
+							</span>
+						{:else if progress.total > 0 && progress.stage !== 'failed'}
+							<span class="font-mono text-fg">{progress.percent.toFixed(0)}%</span>
+						{:else if progress.stage === 'downloading'}
+							<!--
+								连接刚建立、第一块数据还没到，total 仍是 0。
+								这时显示 0% 会被读成「下载卡住了」，不如明说在等首包。
+							-->
+							<span class="text-fg-faint">正在建立连接…</span>
+						{/if}
+					</div>
+
+					<!--
+					进度条本身。失败态保留一条红色满格而不是空条：空条会让人
+					以为「还没开始」，而实际已经结束了。
+				-->
+					<div
+						class="h-2 w-full overflow-hidden rounded-full bg-bg-surface"
+						role="progressbar"
+						aria-valuenow={progress.percent}
+						aria-valuemin="0"
+						aria-valuemax="100"
+					>
+						<div
+							class="h-full rounded-full transition-[width] duration-300 ease-out {progress.failed
+								? 'bg-error'
+								: restarting
+									? 'bg-success'
+									: 'bg-primary'}"
+							style="width: {progress.failed ? 100 : progress.percent}%"
+						></div>
+					</div>
+
+					{#if progress.failed}
+						<p class="text-[12.5px] text-error-ink">
+							更新失败：{progress.error ?? '未知原因'}
+						</p>
+					{/if}
+
+					{#if progress.steps?.length}
+						<!--
+						执行日志。放在 <details> 里是因为它平时没人看，
+						但真出问题时它就是唯一的线索（下载了多久、校验有没有过、
+						备份写到哪），必须能翻出来。
+					-->
+						<details class="text-[12px]">
+							<summary class="cursor-pointer text-fg-muted">
+								执行日志（{progress.steps.length} 条）
+							</summary>
+							<ul class="mt-2 space-y-0.5 font-mono text-[11px] text-fg-faint">
+								{#each progress.steps as step, i (i)}
+									<li>{step}</li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+
+					{#if progress.result?.backup_path}
+						<p class="font-mono text-[11px] text-fg-faint">
+							旧版本备份：{progress.result.backup_path}
+						</p>
+					{/if}
+				</div>
+			</Panel>
+		</div>
+	{/if}
 </div>
 
 <ConfirmDialog

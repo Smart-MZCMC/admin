@@ -10,7 +10,6 @@ import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import type {
-	ApplyUpdateResult,
 	AuditLogsResponse,
 	AuthUser,
 	ChangePasswordResponse,
@@ -31,6 +30,7 @@ import type {
 	SetupStatus,
 	ShotCutsResponse,
 	SystemInfo,
+	UpdateProgress,
 	UpdateStatus,
 	User,
 	UserProject
@@ -293,12 +293,19 @@ export const api = {
 	 * target_version 必须传用户确认过的那个版本号，后端会与更新源上的当前
 	 * 版本比对，不一致就拒绝——否则会出现「界面确认的是 1.2.0，实际装上
 	 * 1.3.0」。
+	 *
+	 * 后端**立刻返回**（原先是同步做完一整轮）：下载 26 MB 要好几分钟，
+	 * 放在一个请求里既看不到进度、也随时可能被反向代理掐断。真正的结果
+	 * 通过 updateProgress 轮询获得。
 	 */
 	applyUpdate: (targetVersion: string) =>
-		request<ApplyUpdateResult>('/api/system/update/apply', {
+		request<{ started: boolean; message?: string }>('/api/system/update/apply', {
 			method: 'POST',
 			body: { confirm: true, target_version: targetVersion }
 		}),
+
+	/** 查询更新进度。stage=idle 表示当前没有任务在跑。 */
+	updateProgress: () => request<UpdateProgress>('/api/system/update/progress'),
 
 	// --- users ---
 	listUsers: () => request<User[]>('/api/admin/users'),
