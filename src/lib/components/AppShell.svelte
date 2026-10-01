@@ -5,9 +5,11 @@
 	import { api } from '$lib/api/client';
 	import type { Role } from '$lib/api/types';
 	import { roleLabel } from '$lib/roles';
+	import { appVersion } from '$lib/version';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
 	import Avatar from './Avatar.svelte';
+	import VersionBanner from './VersionBanner.svelte';
 	import Icon from './Icon.svelte';
 	import type { IconName } from './icons';
 
@@ -80,6 +82,8 @@
 
 	let online = $state<number | null>(null);
 	let version = $state('');
+	/** 后端声明的最低客户端版本；空串表示后端没声明。 */
+	let minClientVersion = $state('');
 	let drawerOpen = $state(false);
 	let userMenuOpen = $state(false);
 	let searchOpen = $state(false);
@@ -117,6 +121,9 @@
 			const status = await api.status();
 			online = status.online_count;
 			version = status.version;
+			// 后端声明的最低适配版本。老后端没有这个字段，保持空串即可 ——
+			// 横幅会退回「版本不等就提醒」，而不是不出声。
+			minClientVersion = status.min_client_version ?? '';
 		} catch {
 			online = null;
 		}
@@ -326,7 +333,13 @@
 					{online === null ? '服务未连接' : `在线客户端 ${online}`}
 				</span>
 				{#if version}
-					<span class="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">v{version}</span>
+					<!--
+						两个版本都标出来。以前这里只显示后端版本，看起来像是本端版本，
+						版本不一致时无从判断到底该升哪一边。
+					-->
+					<span class="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
+						本端 v{appVersion} · 后端 v{version}
+					</span>
 				{/if}
 			</div>
 
@@ -528,6 +541,9 @@
 				</div>
 			</div>
 		</header>
+
+		<!-- 版本不一致提示。放在 main 之外，这样横跨整个内容区而不受内边距影响。 -->
+		<VersionBanner serverVersion={version} {minClientVersion} />
 
 		<main class="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-6 md:py-7">
 			<nav class="mb-4 flex items-center gap-1.5 text-[11px] text-fg-faint" aria-label="面包屑">

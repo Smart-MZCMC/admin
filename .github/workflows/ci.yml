@@ -44,7 +44,9 @@ jobs:
         run: pnpm run check
 
       - name: Build
-        run: pnpm run build
+        # CI 里没有权威版本号，用明确的开发版占位。不能留空：
+        # 客户端会拿它和后端版本比对，空值会被当成「版本不一致」而误报。
+        run: VITE_APP_VERSION=0.0.0-dev pnpm run build
 
       # 产物结构：build/index.html + build/_app/**，部署到 backend 的 public/admin。
       - name: Show build output

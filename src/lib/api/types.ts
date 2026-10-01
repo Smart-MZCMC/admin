@@ -139,6 +139,13 @@ export interface ServerStatus {
 	status: string;
 	online_count: number;
 	version: string;
+	/**
+	 * 后端要求的最低客户端版本。低于它的客户端会提示「必须更新」。
+	 *
+	 * 可选：1.2.0 之前的后端没有这个字段。新版 admin 对上老后端时要能正常
+	 * 降级（退回「版本不等就提醒」），不能当成读取 undefined 时崩掉。
+	 */
+	min_client_version?: string;
 }
 
 /**
