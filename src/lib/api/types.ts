@@ -256,3 +256,66 @@ export interface CleanupResult {
 	message: string;
 	count: number;
 }
+
+/** GET /api/setup/status — 全新部署的初始化向导 */
+export interface SetupStatus {
+	/** 系统是否还没初始化。true 时除 /api/setup/* 外的接口都会返回 503。 */
+	needs_setup: boolean;
+	version: string;
+	/** 探测到的内网 IP，可能为空（无可用网卡）。 */
+	lan_ip: string;
+	database: {
+		connection: string;
+		path: string;
+		/** 当前是否存在。注意：框架打开连接时会顺手建出空文件，所以它很快会变成 true。 */
+		exists: boolean;
+		/** 进程启动时数据库文件不存在 —— 这才是「全新部署」的判据。 */
+		missing_at_startup: boolean;
+	};
+	env: {
+		path: string;
+		abs_path: string;
+		exists: boolean;
+		/** false 时向导会在提交前就拒绝，避免白填一遍。 */
+		writable: boolean;
+	};
+	secrets: {
+		app_key: boolean;
+		jwt_secret: boolean;
+	};
+	defaults: {
+		app_name: string;
+		app_url: string;
+		app_host: string;
+		app_port: string;
+		admin_username: string;
+		admin_display_name: string;
+	};
+}
+
+/** POST /api/setup/apply 的请求体 */
+export interface SetupApplyPayload {
+	app_name: string;
+	app_url: string;
+	app_host: string;
+	app_port: string;
+	admin_username: string;
+	admin_password: string;
+	admin_display_name?: string;
+	admin_email?: string;
+}
+
+/** POST /api/setup/apply — 初始化结果 */
+export interface SetupApplyResult {
+	message: string;
+	admin: AuthUser;
+	/** 本次真正改动过的 .env 键名。 */
+	env_written: string[];
+	env_path: string;
+	/** 监听地址/端口变了，需要重启后端才生效。 */
+	restart_required: boolean;
+	app_url: string;
+	ws_url: string;
+	login_url: string;
+	notes: string[];
+}

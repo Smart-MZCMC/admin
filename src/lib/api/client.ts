@@ -24,6 +24,9 @@ import type {
 	ProjectStats,
 	RoleInfo,
 	ServerStatus,
+	SetupApplyPayload,
+	SetupApplyResult,
+	SetupStatus,
 	SystemInfo,
 	UpdateStatus,
 	User,
@@ -71,8 +74,20 @@ interface RequestOptions {
 	raw?: boolean;
 }
 
-/** 登录与注册本身就会返回 401/403，不能当成会话过期。 */
-const NO_SESSION_PATHS = new Set(['/api/auth/login', '/api/auth/register']);
+/**
+ * 这些接口的 4xx/5xx 都不是「会话过期」，不能触发统一登出。
+ *
+ * 登录与注册本身会返回 401/403；初始化向导在系统还没有任何账号时被调用，
+ * 参数错误（400）、已初始化（403）、或初始化模式下的 503 都要原样展示给用户
+ * ——之前的实现会把它们当成令牌失效，直接把人踢回登录页，向导页刚填的内容
+ * 一整屏就没了。
+ */
+const NO_SESSION_PATHS = new Set([
+	'/api/auth/login',
+	'/api/auth/register',
+	'/api/setup/status',
+	'/api/setup/apply'
+]);
 
 /**
  * 会话过期时的统一处理。
@@ -192,6 +207,22 @@ export const api = {
 			method: 'PUT',
 			body: { current_password: currentPassword, new_password: newPassword }
 		}),
+
+	// --- setup（全新部署初始化向导） ---
+	/**
+	 * 系统是否还没初始化，以及向导要用的默认值。
+	 *
+	 * 公开接口，且后端在初始化模式下也会放行——否则向导页自己都拿不到数据。
+	 */
+	setupStatus: () => request<SetupStatus>('/api/setup/status'),
+
+	/**
+	 * 执行初始化：写 .env → 跑迁移 → 建管理员。
+	 *
+	 * 只在系统未初始化时可用，重复调用返回 403。
+	 */
+	setupApply: (payload: SetupApplyPayload) =>
+		request<SetupApplyResult>('/api/setup/apply', { method: 'POST', body: payload }),
 
 	// --- status & health ---
 	status: () => request<ServerStatus>('/api/status'),
