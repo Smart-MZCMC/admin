@@ -3,6 +3,7 @@
 	import { api } from '$lib/api/client';
 	import type { Role, RoleInfo, User } from '$lib/api/types';
 	import {
+		deleteBlockedReason,
 		roleAtLeast,
 		roleLabel,
 		roleState,
@@ -143,6 +144,14 @@
 	// 达到管理员等级的都算（含超管）。原来只数 role === 'admin'，
 	// 超管会被漏掉，页面上显示的「管理员 N 个」会少一人。
 	const adminCount = $derived(users.filter((u) => roleAtLeast(u.role, 'admin')).length);
+
+	/**
+	 * 系统里现有的超管数量。
+	 *
+	 * 「能不能删某个超管」取决于删完还剩不剩超管，所以这个判断必须带上全量计数——
+	 * 只看目标那一个是不够的。用户列表本来就在手上，数一下即可。
+	 */
+	const superAdminCount = $derived(users.filter((u) => u.role === 'super_admin').length);
 </script>
 
 <svelte:head><title>用户管理 - 管理后台</title></svelte:head>
@@ -207,10 +216,20 @@
 							{/each}
 						</select>
 					{/if}
+					<!--
+						删除按钮按「真删得掉」显示，而不是一律摆出来。
+						此前它没有任何门控，于是系统里唯一的超管在自己那一行也看得到
+						「删除」——后端会返回「不能删除自己的账号」，但界面上那个
+						可点的红按钮看上去就像「超管可以被删掉」。
+						不可删时用禁用按钮加 title 说明原因，而不是直接消失：
+						直接消失会让人以为漏加载了，禁用加说明才讲得清规矩。
+					-->
 					<Button
 						size="sm"
 						variant="danger-ghost"
 						icon="trash"
+						disabled={deleteBlockedReason(auth.user, user, superAdminCount) !== ''}
+						title={deleteBlockedReason(auth.user, user, superAdminCount) || '删除该账号'}
 						onclick={() => (pendingDelete = user)}
 					>
 						删除

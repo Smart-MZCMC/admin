@@ -94,9 +94,7 @@ export function switchableRoles(
 	all: readonly string[]
 ): string[] {
 	if (!actor || !actor.role) return [];
-	// 改角色是对人的管理动作，最低要管理员（后端 decideRoleChange 的第一条）。
 	if (!roleAtLeast(actor.role, 'admin')) return [];
-	// 目标比自己权限高时改不动，就别给出这个下拉。
 	if (!roleAtLeast(actor.role, target.role)) return [];
 	const isSelf = actor.id === target.id;
 	return all.filter((role) => {
@@ -109,4 +107,52 @@ export function switchableRoles(
 		if (isSelf && !roleAtLeast(role, actor.role as string)) return false;
 		return true;
 	});
+}
+
+/**
+ * 能否删除某个账号，语义与后端 decideDeleteUser + guardLastSuperAdmin 一致。
+ *
+ * 后端是真正的判定方，这里只决定「要不要把删除按钮摆出来」。摆出一个
+ * 点了必定失败的操作比没有更糟：用户会以为防线没设，或者以为系统出了 bug。
+ *
+ * 三条硬规则：
+ *  - 操作者至少管理员。删账号是管理动作，与「我等级比你高」无关——
+ *    否则会出现「后勤能删导播」这种按等级推导出来的荒唐结果。
+ *  - 不能删自己。删掉就再也进不来了。
+ *  - 不能删权限不低于自己的。超管被管理员删掉同理。
+ *
+ * 第四条要额外信息：目标是超管时，系统里必须还有别的超管，否则删掉就没人
+ * 能管用户、改角色、做系统更新，只能回服务器手改数据库。
+ *
+ * ⚠️ 这几条判断的对象是**操作者**（actor），不是被删的那个人。
+ * 用户页此前对删除按钮完全没有门控，于是每个人（包括唯一的超管本人）
+ * 都看得到一个点了必定 400 的删除按钮，看上去就像「超管可以被删掉」。
+ */
+export function canDeleteUser(
+	actor: { id: number; role: string } | null | undefined,
+	target: { id: number; role: string },
+	superAdminCount: number
+): boolean {
+	if (!actor || !actor.role) return false;
+	if (!roleAtLeast(actor.role, 'admin')) return false;
+	if (actor.id === target.id) return false;
+	if (!roleAtLeast(actor.role, target.role)) return false;
+	// 目标是超管时，要保证删完还剩下至少一个。
+	if (target.role === 'super_admin' && superAdminCount <= 1) return false;
+	return true;
+}
+
+/** 同级之间能不能互删（用于给用户一个明确的解释，而不是让人猜规则）。 */
+export function deleteBlockedReason(
+	actor: { id: number; role: string } | null | undefined,
+	target: { id: number; role: string },
+	superAdminCount: number
+): string {
+	if (!actor || !actor.role) return '未登录';
+	if (!roleAtLeast(actor.role, 'admin')) return '需要管理员及以上角色';
+	if (actor.id === target.id) return '不能删除自己的账号';
+	if (!roleAtLeast(actor.role, target.role)) return `不能删除${roleLabel(target.role)}或更高角色`;
+	if (target.role === 'super_admin' && superAdminCount <= 1)
+		return '系统至少需要保留一个超级管理员';
+	return '';
 }

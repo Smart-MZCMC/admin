@@ -290,6 +290,12 @@ export interface UpdateStatus {
 	error?: string;
 	/** 资产下载镜像前缀；空表示直接从 GitHub 下载。 */
 	download_mirror?: string;
+	/**
+	 * checksums.txt 的可信地址；空表示跟随下载源。
+	 *
+	 * 两者都空/都指向同一处时，校验值与安装包同源——sha256 就只是形式上的校验。
+	 */
+	checksum_url?: string;
 }
 
 /**

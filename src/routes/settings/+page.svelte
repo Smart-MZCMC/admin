@@ -422,12 +422,35 @@
 					域名，那个域名经常被 TCP 阻断——表现为一键更新就卡死。
 					没配镜像时明确说出来，让人能立刻对症下药。
 				-->
-				<p class="text-[12px] text-fg-faint">
-					下载镜像：{#if update.download_mirror}<span class="font-mono"
-							>{update.download_mirror}</span
-						>{:else}<span class="text-warning-ink">未配置（直连 GitHub，校园网内可能无法下载）</span
-						>{/if}
-				</p>
+				<!--
+					镜像与校验值来源。校园网里最常见的故障就是第一条：api.github.com
+					有时能通，所以「检查更新」显示一切正常，但资产要走 github.com 的
+					下载域名，那个域名经常被 TCP 阻断——表现为一键更新就卡死。
+				-->
+				<div class="space-y-1 text-[12px] text-fg-faint">
+					<p>
+						下载镜像：{#if update.download_mirror}<span class="font-mono"
+								>{update.download_mirror}</span
+							>{:else}<span class="text-warning-ink"
+								>未配置（直连 GitHub，校园网内可能无法下载）</span
+							>{/if}
+					</p>
+					<p>
+						校验值来源：{#if update.checksum_url}<span class="font-mono">{update.checksum_url}</span
+							>{:else}<span class="text-warning-ink">跟随下载源</span>{/if}
+					</p>
+					{#if update.download_mirror && !update.checksum_url}
+						<!--
+							这两条必须一起说：校验和与包来自同一处，攻破镜像就能同时替换
+							两者，sha256 校验形同虚设。不提示的话，运维会以为配了镜像就等于
+							「更新仍然是可信的」。
+						-->
+						<p class="text-warning-ink">
+							注意：校验值与安装包来自同一处，镜像若被篡改即可同时替换两者，完整性校验会一并失效。
+							需要真正的校验请配置 <code class="font-mono">UPDATE_CHECKSUM_URL</code> 指向独立可信源。
+						</p>
+					{/if}
+				</div>
 			</div>
 		{/if}
 	</Panel>
