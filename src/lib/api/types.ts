@@ -6,27 +6,41 @@
  * 与后端 app/models/role.go 的 models.Role 一一对应，按权限从高到低。
  *
  * 顺序有意义：它同时表达了等级高低（后端按等级判权限），
- * 所以「超级管理员 → 导播」既是最强到最弱，也是列表展示顺序。
+ * 所以「超级管理员 → 后勤」既是最强到最弱，也是列表展示顺序。
+ *
+ * ⚠️ 这份表是后端 role.go 的**手工副本**，改后端等级时必须同步改这里，
+ * 否则前端按等级判的菜单门槛会与后端实际准入对不上：症状是「菜单里没有、
+ * 但地址栏能进」或者反过来。后端改完请跑一次 `pnpm test`，
+ * role_levels 的用例就是钉这份表的。
  */
 export const ROLES = [
 	'super_admin',
 	'admin',
 	'leader',
+	'director',
+	'packaging',
+	'commentator',
 	'pre_production',
-	'logistics',
-	'director'
+	'logistics'
 ] as const;
 
 export type Role = (typeof ROLES)[number];
 
-/** 与后端 models.Role 的 Level() 对齐，仅供前端本地判断等级。 */
+/**
+ * 与后端 models.Role 的 Level() 对齐，仅供前端本地判断等级。
+ *
+ * 数字必须与 role.go 里的 level* 常量逐个相同。解说与前期同为 20 是有意的：
+ * 两者权限面相同（都只订阅与查看），用等级区分不了也不需要区分。
+ */
 export const ROLE_LEVELS: Record<Role, number> = {
 	super_admin: 60,
 	admin: 50,
 	leader: 40,
-	pre_production: 30,
-	logistics: 20,
-	director: 10
+	director: 30,
+	packaging: 25,
+	commentator: 20,
+	pre_production: 20,
+	logistics: 10
 };
 
 /**
@@ -39,9 +53,11 @@ export const ROLE_LABELS: Record<Role, string> = {
 	super_admin: '超级管理员',
 	admin: '管理员',
 	leader: '负责人',
+	director: '导播',
+	packaging: '包装',
+	commentator: '解说',
 	pre_production: '前期',
-	logistics: '后勤',
-	director: '导播'
+	logistics: '后勤'
 };
 
 /** 把角色翻成中文的兜底表与本地等级判断在 $lib/roles 里，这里只放数据。 */
@@ -51,6 +67,23 @@ export interface RoleInfo {
 	value: Role;
 	label: string;
 	level: number;
+}
+
+/**
+ * GET /api/auth/permissions — 当前账号的生效权限。
+ *
+ * 门槛是「登录即可」，且**只返回调用者自己的**：不返回全量策略矩阵，因为那是
+ * 管理界面将来的数据源，届时该另开一个需要 user.manage 的接口，不该让任何
+ * 登录用户都能读到「谁有什么权限」这张表。
+ *
+ * permissions 是后端 app/rbac 的权限名（`<对象>.<动作>`），前端词表见
+ * $lib/rbac 的 PERMISSIONS。
+ */
+export interface PermissionsResponse {
+	role: Role;
+	/** 后端算好的中文角色名，用于「权限不足」提示里的自我说明。 */
+	role_label: string;
+	permissions: string[];
 }
 
 export interface AuthUser {

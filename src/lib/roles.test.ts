@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ROLES } from './api/types';
 import { canDeleteUser, deleteBlockedReason, roleAtLeast, switchableRoles } from './roles';
 
 /**
@@ -8,14 +9,38 @@ import { canDeleteUser, deleteBlockedReason, roleAtLeast, switchableRoles } from
  *
  * 这里逐条对着后端 decideRoleChange / guardGrant 的规则写，
  * 改动任意一条时这个文件会先响。
+ *
+ * ⚠️ 这里判的是**两层**，测试也要分开断言：
+ *  - 准入层：有没有 user.manage（决定看不看得见这个按钮）；
+ *  - 控制器层：目标不能比自己高、不能删自己、不能动最后一个超管。
+ * 两者叠加。删掉第二层的后果是本项目真踩过的「后勤能删掉导播账号」。
  */
-const ALL = ['super_admin', 'admin', 'leader', 'pre_production', 'logistics', 'director'];
+/**
+ * 候选角色全集直接取 $lib/api/types 的 ROLES，不在本文件再抄一份。
+ *
+ * 此前这里写死了一个六角色数组，于是后端新增 packaging / commentator 时
+ * 这些用例依旧全绿——它们根本没测新角色。现在后端一改角色表，
+ * ROLES 一变，下面所有用例自动跟着走真实全集。
+ * 等级数值的同步由 role_table.test.ts 钉住。
+ */
+const ALL = [...ROLES];
 
-const superAdmin = { id: 1, role: 'super_admin' };
-const admin = { id: 2, role: 'admin' };
-const leader = { id: 3, role: 'leader' };
-const otherLeader = { id: 4, role: 'leader' };
-const director = { id: 5, role: 'director' };
+/**
+ * 准入层只问一项权限：user.manage（增删账号、调整角色）。
+ *
+ * 所以这里不必抄整张策略矩阵——那两个常量表达的是「持有 / 不持有 user.manage」
+ * 这一个事实。完整的「谁有哪些权限」由 rbac.test.ts 对着后端 policy.csv 钉住。
+ * 刻意把「负责人」那一档写成只带 user.view：负责人角色等级 40 比导播 30 还高，
+ * 若哪天有人把准入层退回按等级判断，这里的 leader 用例会先红。
+ */
+const MANAGE = ['user.manage'] as const;
+const NO_MANAGE = ['user.view'] as const;
+
+const superAdmin = { id: 1, role: 'super_admin', permissions: MANAGE };
+const admin = { id: 2, role: 'admin', permissions: MANAGE };
+const leader = { id: 3, role: 'leader', permissions: NO_MANAGE };
+const otherLeader = { id: 4, role: 'leader', permissions: NO_MANAGE };
+const director = { id: 5, role: 'director', permissions: NO_MANAGE };
 
 describe('switchableRoles', () => {
 	it('超管可以改负责人的角色（回归：曾按目标角色判断导致下拉被藏掉）', () => {
@@ -55,7 +80,9 @@ describe('switchableRoles', () => {
 	it('低于管理员的账号什么都改不了', () => {
 		for (const target of [director, leader, otherLeader]) {
 			expect(switchableRoles(director, target, ALL)).toEqual([]);
-			expect(switchableRoles({ id: 6, role: 'logistics' }, target, ALL)).toEqual([]);
+			expect(
+				switchableRoles({ id: 6, role: 'logistics', permissions: NO_MANAGE }, target, ALL)
+			).toEqual([]);
 		}
 	});
 
@@ -67,7 +94,7 @@ describe('switchableRoles', () => {
 	});
 
 	it('给自己升到同等或更高的角色不算降级，可以给', () => {
-		// 唯一剩下的可能就是没有别的同等级角色——全表只有六个角色，
+		// 唯一剩下的可能就是没有别的同等级角色——全表只有八个角色，
 		// 自己那一行因此通常是空的。这条断言的是「过滤逻辑没把同角色误伤」。
 		const options = switchableRoles(admin, admin, ALL);
 		expect(options).toEqual([]);
@@ -76,6 +103,23 @@ describe('switchableRoles', () => {
 	it('未登录时一律为空', () => {
 		expect(switchableRoles(null, leader, ALL)).toEqual([]);
 		expect(switchableRoles(undefined, leader, ALL)).toEqual([]);
+	});
+
+	/**
+	 * 准入层：没有 user.manage 就连这个下拉都不该出现。
+	 *
+	 * 这条是权限迁移后最典型的症状：负责人角色不低（40 级，比导播还高），
+	 * 按旧的「管理员及以上」判断他确实过不去——但真正的问题是他现在有
+	 * user.view、能进这个页面，看到一个点了必然 403 的下拉比什么都看不见更糟。
+	 */
+	it('没有 user.manage 的账号一律给不出可改的角色', () => {
+		// 负责人：只看得到人，不能改人。
+		expect(switchableRoles(leader, director, ALL)).toEqual([]);
+		// 权限字段缺失（没传）也按「无权限」处理，绝不因为漏传就放行。
+		expect(switchableRoles({ id: 2, role: 'admin' }, director, ALL)).toEqual([]);
+		expect(switchableRoles({ id: 2, role: 'admin', permissions: [] }, director, ALL)).toEqual([]);
+		// 持有 user.manage 就给，且给的是控制器层过滤后的结果。
+		expect(switchableRoles(admin, director, ALL)).toContain('leader');
 	});
 });
 
@@ -105,11 +149,11 @@ describe('roleAtLeast', () => {
  * 只会让人以为防线没设。
  */
 describe('canDeleteUser', () => {
-	const superAdmin = { id: 1, role: 'super_admin' };
-	const otherSuperAdmin = { id: 2, role: 'super_admin' };
-	const admin = { id: 3, role: 'admin' };
-	const otherAdmin = { id: 4, role: 'admin' };
-	const leader = { id: 5, role: 'leader' };
+	const superAdmin = { id: 1, role: 'super_admin', permissions: MANAGE };
+	const otherSuperAdmin = { id: 2, role: 'super_admin', permissions: MANAGE };
+	const admin = { id: 3, role: 'admin', permissions: MANAGE };
+	const otherAdmin = { id: 4, role: 'admin', permissions: MANAGE };
+	const leader = { id: 5, role: 'leader', permissions: NO_MANAGE };
 
 	it('超管不能删自己（现场报告的那个场景）', () => {
 		expect(canDeleteUser(superAdmin, superAdmin, 1)).toBe(false);
@@ -139,7 +183,10 @@ describe('canDeleteUser', () => {
 	it('管理员以下什么都删不了', () => {
 		for (const target of [leader, otherAdmin, superAdmin]) {
 			expect(canDeleteUser(leader, target, 2), target.role).toBe(false);
-			expect(canDeleteUser({ id: 9, role: 'logistics' }, target, 2), target.role).toBe(false);
+			expect(
+				canDeleteUser({ id: 9, role: 'logistics', permissions: NO_MANAGE }, target, 2),
+				target.role
+			).toBe(false);
 		}
 	});
 
@@ -147,39 +194,67 @@ describe('canDeleteUser', () => {
 		expect(canDeleteUser(null, leader, 2)).toBe(false);
 		expect(canDeleteUser(undefined, leader, 2)).toBe(false);
 	});
+
+	/**
+	 * 准入层与控制器层是叠加的：把 user.manage 换成「角色够高就行」，
+	 * 或者反过来把三条附加规则删掉，都会留下可利用的口子。
+	 */
+	it('准入层与控制器层叠加，缺一层都拦不住', () => {
+		// 只有权限、没有附加规则 → 会把「最后一个超管」摆成可删。
+		expect(
+			canDeleteUser({ id: 1, role: 'super_admin', permissions: MANAGE }, otherSuperAdmin, 1)
+		).toBe(false);
+		// 只有附加规则、没有权限 → 权限判断被跳过，仍然不能删。
+		expect(canDeleteUser({ id: 5, role: 'leader' }, director, 2)).toBe(false);
+		expect(canDeleteUser({ id: 5, role: 'leader', permissions: [] }, director, 2)).toBe(false);
+		// 两层都满足才放行。
+		expect(canDeleteUser(admin, leader, 2)).toBe(true);
+	});
 });
 
 describe('deleteBlockedReason', () => {
 	it('可删时返回空串', () => {
-		expect(deleteBlockedReason({ id: 3, role: 'admin' }, { id: 5, role: 'leader' }, 1)).toBe('');
+		expect(deleteBlockedReason({ id: 3, role: 'admin', permissions: MANAGE }, otherLeader, 1)).toBe(
+			''
+		);
 	});
 
 	it('不可删时给出能直接看懂的原因', () => {
 		// 界面上把这句放进 title，所以要能直接读懂，不能是错误码。
 		expect(
-			deleteBlockedReason({ id: 1, role: 'super_admin' }, { id: 1, role: 'super_admin' }, 1)
+			deleteBlockedReason(
+				{ id: 1, role: 'super_admin', permissions: MANAGE },
+				{ id: 1, role: 'super_admin' },
+				1
+			)
 		).toBe('不能删除自己的账号');
 		expect(
-			deleteBlockedReason({ id: 3, role: 'admin' }, { id: 1, role: 'super_admin' }, 2)
+			deleteBlockedReason(
+				{ id: 3, role: 'admin', permissions: MANAGE },
+				{ id: 1, role: 'super_admin' },
+				2
+			)
 		).toContain('超级管理员');
+		// 准入层的原因要指名权限，否则用户只看到「需要账号管理权限」却不知道
+		// 找谁要——这正是后端 403 文案里 permissionLabels 存在的同一个理由。
 		expect(
-			deleteBlockedReason({ id: 5, role: 'leader' }, { id: 9, role: 'director' }, 1)
-		).toContain('管理员');
+			deleteBlockedReason({ id: 5, role: 'leader', permissions: NO_MANAGE }, director, 1)
+		).toContain('user.manage');
 	});
 
 	it('与 canDeleteUser 始终一致', () => {
 		// 两个函数讲的是同一套规则。一旦分叉，界面就会显示一个与后端判定
 		// 不一致的禁用状态，比没有门控更容易误导人。
 		const actors = [
-			{ id: 1, role: 'super_admin' },
-			{ id: 2, role: 'super_admin' },
-			{ id: 3, role: 'admin' },
-			{ id: 5, role: 'leader' }
+			{ id: 1, role: 'super_admin', permissions: MANAGE },
+			{ id: 2, role: 'super_admin', permissions: MANAGE },
+			{ id: 3, role: 'admin', permissions: MANAGE },
+			{ id: 5, role: 'leader', permissions: NO_MANAGE }
 		];
 		const targets = [
-			{ id: 1, role: 'super_admin' },
-			{ id: 3, role: 'admin' },
-			{ id: 5, role: 'leader' }
+			{ id: 1, role: 'super_admin', permissions: MANAGE },
+			{ id: 3, role: 'admin', permissions: MANAGE },
+			{ id: 5, role: 'leader', permissions: NO_MANAGE }
 		];
 		for (const count of [1, 2]) {
 			for (const a of actors) {

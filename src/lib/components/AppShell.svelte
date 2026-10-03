@@ -3,9 +3,10 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { api } from '$lib/api/client';
-	import type { Role } from '$lib/api/types';
+	import type { Project, User } from '$lib/api/types';
 	import { roleLabel, roleShortLabel } from '$lib/roles';
-	import { minRoleFor } from '$lib/permissions';
+	import { permissionFor } from '$lib/permissions';
+	import { hasPermission, type Permission } from '$lib/rbac';
 	import { appVersion } from '$lib/version';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
@@ -33,21 +34,14 @@
 		label: string;
 		icon: IconName;
 		/**
-		 * 访问该页面所需的最低角色等级。
+		 * 访问该页面所需的具名权限。
 		 *
 		 * 构造时从 $lib/permissions 的 PAGE_PERMISSIONS 填进来，不在这里
 		 * 写死——路由守卫用的是同一张表，两边必须一致。
 		 */
-		min?: Role;
+		perm?: Permission;
 	}
 
-	/**
-	 * 侧边栏分组。
-	 *
-	 * 门槛不在这里写死，而是去 PAGE_PERMISSIONS 查——那份表同时被路由守卫
-	 * 使用，两边因此不可能对不上。写成两份的话，就会出现「菜单里没有这个
-	 * 入口、但地址栏输进去能打开」的页面。
-	 */
 	/**
 	 * 侧边栏分组。
 	 *
@@ -58,8 +52,8 @@
 	 * 分组按「什么时候会打开它」划分，而不是按功能相似度——原先的
 	 * 「工作空间 / 系统」两组里，日志审计、插件与统计、系统设置被塞在一起，
 	 * 但这三者一个值班时看、一个查数据规模、一个改配置，凑在一起反而看不出
-	 * 该去哪。现在按使用场景分三组，组内角色门槛也从 admin 到超管依次递进，
-	 * 顺带让低权限用户的侧边栏从下往上依次变短。
+	 * 该去哪。现在按使用场景分三组，组内权限门槛也依次递进，顺带让权限少的
+	 * 用户的侧边栏从下往上依次变短。
 	 */
 	const navGroups: { label: string; items: NavItem[] }[] = [
 		{
@@ -90,14 +84,14 @@
 		}
 	];
 
-	/** 按当前角色过滤后的导航。门槛统一从 PAGE_PERMISSIONS 取。 */
+	/** 按当前权限过滤后的导航。门槛统一从 PAGE_PERMISSIONS 取。 */
 	const visibleNavGroups = $derived(
 		navGroups
 			.map((group) => ({
 				...group,
 				items: group.items
-					.map((item) => ({ ...item, min: minRoleFor(item.path) }))
-					.filter((item) => !item.min || auth.atLeast(item.min))
+					.map((item) => ({ ...item, perm: permissionFor(item.path) }))
+					.filter((item) => !item.perm || hasPermission(auth.permissions, item.perm))
 			}))
 			.filter((group) => group.items.length > 0)
 	);
@@ -106,7 +100,7 @@
 	 * 搜索用的扁平索引。
 	 *
 	 * 必须是 $derived：直接写 `visibleNavGroups.flatMap(...)` 只会捕获
-	 * $derived 的初始值，之后角色变化（比如切换账号）索引不会跟着更新。
+	 * $derived 的初始值，之后权限变化（比如切换账号）索引不会跟着更新。
 	 */
 	const flatNav = $derived(visibleNavGroups.flatMap((group) => group.items));
 
@@ -179,8 +173,20 @@
 
 	/** Users and projects power the quick jump; a failure just empties the list. */
 	async function loadIndex() {
+		// 两类条目各按自己的权限取：索引里的每一条都会跳到对应页面，
+		// 索引到一个进不去的页面等于「点了报错」。
+		const wantUsers = auth.can('user.view');
+		const wantProjects = auth.can('project.manage');
+		if (!wantUsers && !wantProjects) {
+			indexReady = true;
+			return;
+		}
 		try {
-			const [users, projects] = await Promise.all([api.listUsers(), api.listProjects()]);
+			// 各自兜底而不是一起 Promise.all：后端少开一个接口不该把整份索引废掉。
+			const [users, projects] = await Promise.all([
+				wantUsers ? api.listUsers().catch(() => [] as User[]) : Promise.resolve([]),
+				wantProjects ? api.listProjects().catch(() => [] as Project[]) : Promise.resolve([])
+			]);
 			index = [
 				...users.map((user) => ({
 					id: `user-${user.id}`,

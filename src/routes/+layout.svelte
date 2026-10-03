@@ -11,7 +11,8 @@
 	import AppShell from '$lib/components/AppShell.svelte';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { setup } from '$lib/stores/setup.svelte';
-	import { canVisit, minRoleFor } from '$lib/permissions';
+	import { canVisit, permissionFor } from '$lib/permissions';
+	import { permissionLabel } from '$lib/rbac';
 	import { roleLabel } from '$lib/roles';
 	import Panel from '$lib/components/Panel.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -36,16 +37,16 @@
 	/**
 	 * 挡住「菜单里没有、但地址栏能进」的页面。
 	 *
-	 * 侧边栏按角色藏入口只是第一层；别人把地址发过来、或用户自己敲进去，
+	 * 侧边栏按权限藏入口只是第一层；别人把地址发过来、或用户自己敲进去，
 	 * 照样会渲染出一屏点下去就 403 的按钮。这里用与侧边栏同一张
 	 * PAGE_PERMISSIONS 表做第二层拦截。
 	 *
-	 * auth.loading 期间一律放行：会话还没恢复完时 user 是 null，此时若按
-	 * 「没登录」处理，会在 restore 成功之前先把人踢回登录页——刷新任何页面
-	 * 都会闪一下登录页。
+	 * auth.loading 期间一律放行：会话还没恢复完时 user 是 null、permissions
+	 * 也是空的，此时若按「没权限」处理，会在 restore 成功之前先把人挡在门外
+	 * ——刷新任何页面都会闪一下「没有访问权限」。
 	 */
-	const minRole = $derived(isLogin || isSetup ? undefined : minRoleFor(path));
-	const allowed = $derived(auth.loading || !minRole || auth.atLeast(minRole));
+	const requiredPerm = $derived(isLogin || isSetup ? undefined : permissionFor(path));
+	const allowed = $derived(auth.loading || !requiredPerm || canVisit(auth.permissions, path));
 </script>
 
 {#if isLogin || isSetup}
@@ -66,13 +67,14 @@
 					<Icon name="alert" size={16} class="mt-px shrink-0 text-warning" />
 					<p>
 						当前账号（{auth.user?.display_name || auth.user?.username || '未知'}
-						{auth.user?.role ? `· ${roleLabel(auth.user.role)}` : ''}）没有访问
-						<b>{minRole ? roleLabel(minRole) : ''}</b> 及以上角色才能打开的页面。
+						{auth.user?.role ? `· ${roleLabel(auth.user.role)}` : ''}）没有
+						<b>{requiredPerm ? permissionLabel(requiredPerm) : ''}</b>
+						（{requiredPerm ?? ''}）这项权限，无法打开这个页面。
 					</p>
 				</div>
 				<p>
 					侧边栏里已经按权限藏掉了对应入口，这里再挡一次是为了防止别人直接把地址发过来。
-					需要这个页面的权限请联系管理员调整角色。
+					需要这个页面的权限请联系管理员。
 				</p>
 				<a
 					href={resolve('/')}

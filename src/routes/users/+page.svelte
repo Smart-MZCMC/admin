@@ -35,8 +35,24 @@
 	// 跟着变，而且会出现「能选但提交被拒」或「后端允许却选不出来」。
 	let allRoles = $state<RoleInfo[]>([]);
 
-	/** 只能授予不高于自己的角色——与后端 guardGrant 同一套规则。 */
+	/**
+	 * 只能授予不高于自己的角色——与后端 guardGrant 同一套规则。
+	 *
+	 * 这一条刻意仍按**角色等级**判断：它属于控制器层的「能否操作他人」，
+	 * 与 user.manage 那个准入层是叠加关系，不是替代关系。
+	 */
 	const grantableRoles = $derived(allRoles.filter((r) => auth.atLeast(r.value)));
+
+	/**
+	 * 准入层：能不能进改角色/删账号/新建用户这些接口。
+	 *
+	 * auth.actor 每次访问返回新对象，所以要派生一份再用——直接放进 $derived
+	 * 会因引用每次都变而永远重算（功能上没错，但白白丢掉依赖追踪）。
+	 *
+	 * 页面本身只要求 user.view（负责人就能进来看人），增删改另需 user.manage，
+	 * 于是这个页面上确实存在「看得见表格、但操作按钮全禁用」的负责人。
+	 */
+	const actor = $derived.by(() => auth.actor);
 
 	/**
 	 * 某个用户可以被改成哪些角色（判定逻辑在 $lib/roles 里，好单测）。
@@ -45,7 +61,7 @@
 	 */
 	function switchableRoles(target: User): RoleInfo[] {
 		const allowed = switchableRolesFor(
-			auth.user,
+			actor,
 			target,
 			allRoles.map((r) => r.value)
 		);
@@ -156,12 +172,21 @@
 
 <svelte:head><title>用户管理 - 管理后台</title></svelte:head>
 
-<PageHeader title="用户管理" description="管理员可管理全部项目，导播仅能使用被分配的项目。">
+<PageHeader
+	title="用户管理"
+	description="管理员可管理全部项目，导播仅能使用被分配的项目。增删账号与调整角色需要账号管理权限。"
+>
 	{#snippet actions()}
 		<Button variant="secondary" icon="refresh" disabled={loading} onclick={() => void load()}>
 			刷新
 		</Button>
-		<Button variant="primary" icon="plus" onclick={openCreate}>新建用户</Button>
+		<!--
+			新建用户要 user.manage，与改角色、删账号是同一道门。负责人能进这个
+			页面（user.view）却建不了人，不藏按钮的话点了必然失败。
+		-->
+		{#if auth.can('user.manage')}
+			<Button variant="primary" icon="plus" onclick={openCreate}>新建用户</Button>
+		{/if}
 	{/snippet}
 </PageHeader>
 
@@ -196,8 +221,8 @@
 			{:else if column.key === 'actions'}
 				<div class="flex flex-wrap items-center gap-1.5">
 					<!--
-						角色改动做成下拉而不是几个写死按钮：角色已经有六个，
-						写「设为管理员 / 设为导播」两个按钮既覆盖不了，其余四个
+						角色改动做成下拉而不是几个写死按钮：角色已经有八个，
+						写「设为管理员 / 设为导播」两个按钮既覆盖不了，其余六个
 						还漏在界面上。而且下拉能天然按「我能授予什么」过滤。
 					-->
 					{#if switchableRoles(user).length > 0}
@@ -228,8 +253,8 @@
 						size="sm"
 						variant="danger-ghost"
 						icon="trash"
-						disabled={deleteBlockedReason(auth.user, user, superAdminCount) !== ''}
-						title={deleteBlockedReason(auth.user, user, superAdminCount) || '删除该账号'}
+						disabled={deleteBlockedReason(actor, user, superAdminCount) !== ''}
+						title={deleteBlockedReason(actor, user, superAdminCount) || '删除该账号'}
 						onclick={() => (pendingDelete = user)}
 					>
 						删除

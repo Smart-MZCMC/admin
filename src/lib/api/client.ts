@@ -19,6 +19,7 @@ import type {
 	LoginResponse,
 	LogsResponse,
 	Message,
+	PermissionsResponse,
 	PluginInfo,
 	Project,
 	ProjectCamera,
@@ -120,6 +121,22 @@ const NO_SESSION_PATHS = new Set([
  * 400 + 空 body，前端只能弹一个语焉不详的提示并停在半登录状态。
  */
 let redirecting = false;
+
+/**
+ * 会话失效时的回调，由 auth store 注册。
+ *
+ * 用注册而不是直接 import store：client 是 store 的依赖，反向 import 会成环，
+ * 而且这种环在模块初始化顺序不对时表现成 undefined，很难查。
+ */
+let sessionLostHandler: (() => void) | null = null;
+
+export function onSessionLost(handler: () => void): () => void {
+	sessionLostHandler = handler;
+	return () => {
+		if (sessionLostHandler === handler) sessionLostHandler = null;
+	};
+}
+
 function handleUnauthorized(path: string, status: number): void {
 	if (redirecting) return;
 	if (NO_SESSION_PATHS.has(path)) return;
@@ -127,6 +144,9 @@ function handleUnauthorized(path: string, status: number): void {
 	if (status === 403) return;
 	redirecting = true;
 	clearToken();
+	// 令牌没了，权限必须跟着没。否则界面上留着旧权限、而每个请求都是 401，
+	// 用户看到的是「按钮全在、点了全报错」，还会以为系统出了 bug。
+	sessionLostHandler?.();
 	if (browser) {
 		void goto(resolve('/login')).finally(() => {
 			redirecting = false;
@@ -226,6 +246,15 @@ export const api = {
 	}) => request<AuthUser>('/api/auth/register', { method: 'POST', body: payload }),
 
 	profile: () => request<AuthUser>('/api/auth/profile'),
+
+	/**
+	 * 当前账号的生效权限清单。
+	 *
+	 * 门槛是「登录即可」：它只回答「我自己能干什么」，不返回全量策略矩阵。
+	 * 界面要按权限名渲染按钮就必须问后端这句，因为角色名与权限名之间没有
+	 * 任何映射关系（负责人拿得到 user.view，角色却不是 admin）。
+	 */
+	permissions: () => request<PermissionsResponse>('/api/auth/permissions'),
 
 	/**
 	 * 修改显示名与邮箱。
@@ -330,7 +359,27 @@ export const api = {
 		request<{ message: string }>(`/api/admin/users/${id}/role`, { method: 'PUT', body: { role } }),
 
 	// --- projects ---
+	/**
+	 * 全量项目列表（管理端），后端挂的是 project.manage。
+	 *
+	 * 只给 /projects 那个增删改页面用——它需要不过滤的完整数据。
+	 * 任何登录用户都能看的页面（总览、日志筛选、成员授权、顶部搜索）都用
+	 * 下面的 myProjects()。
+	 */
 	listProjects: () => request<Project[]>('/api/admin/projects'),
+
+	/**
+	 * 「我能看到哪些项目」，登录即可（GET /api/projects）。
+	 *
+	 * 后端在这里按 user_projects 收窄：管理员及以上拿全部，其余角色只拿被授权
+	 * 的那些（一个人一个都没授权时退回全部，否则刚接上鉴权的存量部署会看到
+	 * 空列表）。
+	 *
+	 * ⚠️ 别用 listProjects() 代替它做只读展示：那条挂在 project.manage 后面，
+	 * 负责人没有它，于是总览页、日志页的导出、成员授权页会各自弹一次「加载
+	 * 失败」——权限迁移后负责人第一次登录后台就会看到一屏报错。
+	 */
+	myProjects: () => request<Project[]>('/api/projects'),
 
 	createProject: (payload: ProjectPayload) =>
 		request<Project>('/api/admin/projects', { method: 'POST', body: payload }),

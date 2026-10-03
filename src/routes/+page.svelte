@@ -38,8 +38,12 @@
 		try {
 			const [status, userList, projectList, logs] = await Promise.all([
 				api.status().catch(() => null),
+				// 用户列表要 user.view、项目列表走 myProjects（登录即可）。
+				// 这两个都**不是**管理接口：总览是每个登录用户的落地页，用
+				// /api/admin/* 那两条（user.view / project.manage）的话，
+				// 负责人登录后第一屏就是「加载总览数据失败」。
 				api.listUsers(),
-				api.listProjects(),
+				api.myProjects(),
 				api.listLogs({ limit: 8 }).catch(() => ({
 					total: 0,
 					messages: [] as Message[],
@@ -129,9 +133,12 @@
 		<Button variant="secondary" icon="refresh" disabled={loading} onclick={() => void load()}>
 			刷新数据
 		</Button>
-		<Button variant="primary" icon="projects" onclick={() => void goto(resolve('/projects'))}>
-			管理项目
-		</Button>
+		<!-- /projects 要 project.manage；负责人没有，别给一个点了就报错的入口。 -->
+		{#if auth.can('project.manage')}
+			<Button variant="primary" icon="projects" onclick={() => void goto(resolve('/projects'))}>
+				管理项目
+			</Button>
+		{/if}
 	{/snippet}
 </PageHeader>
 

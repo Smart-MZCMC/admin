@@ -43,7 +43,11 @@
 	async function load() {
 		loading = true;
 		try {
-			const [userList, projectList] = await Promise.all([api.listUsers(), api.listProjects()]);
+			// 项目走 myProjects 而不是 listProjects：后者挂在 project.manage
+			// 后面，而这一页的门槛是 project.member（负责人就能进），用错接口
+			// 会让负责人一打开就是「加载授权数据失败」——权限迁移后他第一次
+			// 用这个功能就撞上 403。
+			const [userList, projectList] = await Promise.all([api.listUsers(), api.myProjects()]);
 			users = userList;
 			projects = projectList;
 

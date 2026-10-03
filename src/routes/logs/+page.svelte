@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
 	import type { AuditLog, Message, Project } from '$lib/api/types';
+	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
 	import { formatMessage } from '$lib/format';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -85,6 +86,17 @@
 	];
 
 	const projectById = $derived(new Map(projects.map((project) => [project.id, project])));
+
+	/**
+	 * 这一页上三个动作各要一项权限，彼此独立。
+	 *
+	 * 页面门槛只是 log.view（读），但负责人**没有** log.cleanup 与 audit.view，
+	 * 所以「清理过期日志」和「操作审计」这两个 Tab 对他是点了必然 403 的。
+	 * 这正是权限迁移要消灭的「菜单里有、点了报错」，按权限名藏掉即可。
+	 */
+	const canExport = $derived(auth.can('log.export'));
+	const canCleanup = $derived(auth.can('log.cleanup'));
+	const canViewAudit = $derived(auth.can('audit.view'));
 
 	function projectLabel(projectId: number): string {
 		const project = projectById.get(projectId);
@@ -214,7 +226,9 @@
 		auditTo = to;
 
 		try {
-			projects = await api.listProjects();
+			// myProjects 而不是 listProjects：后者挂在 project.manage 后面，
+			// 负责人没有它，于是他连项目筛选下拉都是空的、导出按钮永远点不动。
+			projects = await api.myProjects();
 		} catch {
 			// Non-fatal: the log table falls back to raw project ids.
 		}
@@ -390,9 +404,12 @@
 	<button type="button" class={tabClass(tab === 'messages')} onclick={() => switchTab('messages')}>
 		协调日志
 	</button>
-	<button type="button" class={tabClass(tab === 'audit')} onclick={() => switchTab('audit')}>
-		操作审计
-	</button>
+	<!-- 操作审计要 audit.view（管理员及以上）。负责人看得到日志，但看不到审计。 -->
+	{#if canViewAudit}
+		<button type="button" class={tabClass(tab === 'audit')} onclick={() => switchTab('audit')}>
+			操作审计
+		</button>
+	{/if}
 </div>
 
 {#if tab === 'messages'}
@@ -457,19 +474,28 @@
 				<Button variant="primary" disabled={loading} onclick={() => void load()}>
 					{loading ? '查询中...' : '查询'}
 				</Button>
-				<Button
-					variant="secondary"
-					icon="download"
-					disabled={exporting}
-					onclick={() => void exportJson()}
-				>
-					{exporting ? '导出中...' : '导出 JSON'}
-				</Button>
-				<Button variant="secondary" icon="download" onclick={exportCsv}>导出 CSV（当前结果）</Button
-				>
-				<Button variant="danger-ghost" icon="trash" onclick={() => (cleanupOpen = true)}>
-					清理过期日志
-				</Button>
+				<!--
+					导出与清理各要一项权限，且互不相同（log.export / log.cleanup），
+					早期它们被绑在一起，于是「只能导不能清」的人被迫持有删除权限。
+				-->
+				{#if canExport}
+					<Button
+						variant="secondary"
+						icon="download"
+						disabled={exporting}
+						onclick={() => void exportJson()}
+					>
+						{exporting ? '导出中...' : '导出 JSON'}
+					</Button>
+					<Button variant="secondary" icon="download" onclick={exportCsv}>
+						导出 CSV（当前结果）
+					</Button>
+				{/if}
+				{#if canCleanup}
+					<Button variant="danger-ghost" icon="trash" onclick={() => (cleanupOpen = true)}>
+						清理过期日志
+					</Button>
+				{/if}
 				<span class="ml-auto text-[11.5px] text-fg-muted">
 					匹配 {total} 条，已加载 {messages.length} 条
 				</span>
