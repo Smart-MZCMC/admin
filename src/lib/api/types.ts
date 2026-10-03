@@ -386,6 +386,71 @@ export interface SystemInfo {
 }
 
 /**
+ * GET /api/system/metrics 的响应，仅超级管理员可见。
+ *
+ * 字节数一律由后端给「字节」，换算成 MB/GB 放在前端做。两边都换算会出现
+ * 「后端算 1.05GB、界面显示 1GB」这类对不上的数字，查起来很费时间。
+ */
+export interface SystemMetrics {
+	runtime: {
+		version: string;
+		go_version: string;
+		platform: string;
+		num_cpu: number;
+		goroutines: number;
+		pid: number;
+		uptime_seconds: number;
+		started_at: string;
+		executable: string;
+		working_dir: string;
+		online_count: number;
+	};
+	memory: {
+		alloc_bytes: number;
+		total_alloc_bytes: number;
+		sys_bytes: number;
+		heap_alloc_bytes: number;
+		heap_inuse_bytes: number;
+		stack_inuse_bytes: number;
+		num_gc: number;
+		/** RFC3339；从未 GC 过时为空串。 */
+		last_gc: string;
+		gc_cpu_fraction: number;
+	};
+	disk: {
+		path: string;
+		/** 非 linux 平台拿不到文件系统用量，此时为 false，看 note。 */
+		supported: boolean;
+		total_bytes: number;
+		free_bytes: number;
+		used_bytes: number;
+		used_percent: number;
+		app_bytes: number;
+		app_bytes_detail: { name: string; bytes: number; error?: string }[];
+		note: string;
+	};
+	database: {
+		driver: string;
+		path: string;
+		size_bytes: number;
+		ping: {
+			connected: boolean;
+			version: string;
+			latency_ms: number;
+			error: string;
+		};
+	};
+	components: {
+		name: string;
+		/** running / connected / degraded / error / disabled */
+		status: string;
+		version?: string;
+		detail?: string;
+	}[];
+	collected_at: string;
+}
+
+/**
  * GET /api/plugins — plugins.List() returns a descriptor per plugin,
  * including its effective config and whether it is actually running.
  * Secrets (e.g. the ntfy topic) arrive already masked from the backend.

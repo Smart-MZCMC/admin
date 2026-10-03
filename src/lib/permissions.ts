@@ -41,6 +41,9 @@ export const PAGE_PERMISSIONS: PagePermission[] = [
 	// 这是值班时的依据，不是管理动作。
 	{ path: '/logs', min: 'leader' },
 	{ path: '/plugins', min: undefined },
+	// 运行指标（内存 / 磁盘 / 组件健康）会暴露可执行文件路径、工作目录和
+	// 宿主机文件系统用量，属于「知道的人越少越好」的信息，只给超管。
+	{ path: '/system', min: 'super_admin' },
 	// 系统信息与在线更新会替换服务自身的可执行文件，只给超管。
 	{ path: '/settings', min: 'super_admin' },
 	// 个人中心按设计只挂在右上角的用户菜单里，任何登录用户都能进。

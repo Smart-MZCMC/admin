@@ -18,7 +18,15 @@
 
 	/** Typed so `resolve()` accepts these without a cast. */
 	type NavPath =
-		'/' | '/users' | '/projects' | '/assign' | '/logs' | '/plugins' | '/settings' | '/profile';
+		| '/'
+		| '/users'
+		| '/projects'
+		| '/assign'
+		| '/logs'
+		| '/plugins'
+		| '/system'
+		| '/settings'
+		| '/profile';
 
 	interface NavItem {
 		path: NavPath;
@@ -40,20 +48,42 @@
 	 * 使用，两边因此不可能对不上。写成两份的话，就会出现「菜单里没有这个
 	 * 入口、但地址栏输进去能打开」的页面。
 	 */
+	/**
+	 * 侧边栏分组。
+	 *
+	 * 门槛不在这里写死，而是去 PAGE_PERMISSIONS 查——那份表同时被路由守卫
+	 * 使用，两边因此不可能对不上。写成两份的话，就会出现「菜单里没有这个
+	 * 入口、但地址栏输进去能打开」的页面。
+	 *
+	 * 分组按「什么时候会打开它」划分，而不是按功能相似度——原先的
+	 * 「工作空间 / 系统」两组里，日志审计、插件与统计、系统设置被塞在一起，
+	 * 但这三者一个值班时看、一个查数据规模、一个改配置，凑在一起反而看不出
+	 * 该去哪。现在按使用场景分三组，组内角色门槛也从 admin 到超管依次递进，
+	 * 顺带让低权限用户的侧边栏从下往上依次变短。
+	 */
 	const navGroups: { label: string; items: NavItem[] }[] = [
 		{
-			label: '工作空间',
+			// 盯场：比赛期间一直开着的那几页。
+			label: '工作台',
 			items: [
 				{ path: '/', label: '总览', icon: 'overview' },
-				{ path: '/users', label: '用户管理', icon: 'users' },
+				{ path: '/system', label: '系统监控', icon: 'monitor' },
+				{ path: '/logs', label: '日志与审计', icon: 'logs' }
+			]
+		},
+		{
+			// 配置：赛前把人和项目安排好，之后很少动。
+			label: '赛事配置',
+			items: [
 				{ path: '/projects', label: '项目管理', icon: 'projects' },
+				{ path: '/users', label: '用户管理', icon: 'users' },
 				{ path: '/assign', label: '权限分配', icon: 'assign' }
 			]
 		},
 		{
-			label: '系统',
+			// 数据与系统：出问题时往下查，或由超管改服务本身。
+			label: '数据与系统',
 			items: [
-				{ path: '/logs', label: '日志审计', icon: 'logs' },
 				{ path: '/plugins', label: '插件与统计', icon: 'plugins' },
 				{ path: '/settings', label: '系统设置', icon: 'settings' }
 			]
@@ -291,7 +321,7 @@
 		</a>
 
 		<nav class="flex-1 overflow-y-auto px-3 py-4">
-			{#each navGroups as group (group.label)}
+			{#each visibleNavGroups as group (group.label)}
 				<div class="mb-5 last:mb-0">
 					<div
 						class="mb-1.5 px-2.5 text-[10px] font-semibold tracking-[0.14em] text-fg-faint uppercase"

@@ -65,6 +65,19 @@ describe('canVisit', () => {
 		expect(canVisit('logistics', '/logs')).toBe(false);
 	});
 
+	/**
+	 * 监控页会显示可执行文件路径、工作目录和宿主机文件系统用量。
+	 *
+	 * 这几项属于「知道的人越少越好」的信息——落到 admin 手里就等于把它
+	 * 发给了现场所有管理员。所以门槛与系统设置同级，不是管理员级。
+	 */
+	it('系统监控只有超管能进', () => {
+		expect(canVisit('super_admin', '/system')).toBe(true);
+		expect(canVisit('admin', '/system')).toBe(false);
+		expect(canVisit('leader', '/system')).toBe(false);
+		expect(canVisit('director', '/system')).toBe(false);
+	});
+
 	it('未登录一律不可访问需要门槛的页面', () => {
 		expect(canVisit(undefined, '/users')).toBe(false);
 		expect(canVisit('', '/settings')).toBe(false);

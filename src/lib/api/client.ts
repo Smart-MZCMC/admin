@@ -30,6 +30,7 @@ import type {
 	SetupStatus,
 	ShotCutsResponse,
 	SystemInfo,
+	SystemMetrics,
 	UpdateProgress,
 	UpdateStatus,
 	User,
@@ -284,6 +285,18 @@ export const api = {
 
 	// --- system（仅超级管理员） ---
 	systemInfo: () => request<SystemInfo>('/api/system/info'),
+
+	/**
+	 * 运行指标：内存 / 磁盘 / 组件健康。
+	 *
+	 * 与 systemInfo 分开是因为轮询频率差一个数量级：监控页每 10 秒取一次，
+	 * 而运行环境一次进来看一眼就够，混在一个接口里会把 exe 路径、工作目录、
+	 * 更新器配置这些不会变的字段每 10 秒传一次。
+	 *
+	 * 后端刻意做成永不失败（探活失败也返回 200，只把状态标成 error），
+	 * 所以这里不需要额外的错误分支——真出故障时页面照样有内容可显示。
+	 */
+	systemMetrics: () => request<SystemMetrics>('/api/system/metrics'),
 
 	updateStatus: () => request<UpdateStatus>('/api/system/update'),
 
