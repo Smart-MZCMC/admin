@@ -124,7 +124,13 @@
 		/>
 	</div>
 
-	<div class="mt-3.5 grid gap-3.5 lg:grid-cols-2">
+	<!--
+		items-start 不能省。grid 默认 align-items: stretch，两栏会被拉成等高，
+		而磁盘面板比内存面板多出一整块「应用占用」明细，于是内存面板底部留出
+		一大片空白，看起来像有个框没画完。等高在这里没有任何价值——两个面板的
+		内容本来就是独立的两件事，不存在需要对齐的行。
+	-->
+	<div class="mt-3.5 grid items-start gap-3.5 lg:grid-cols-2">
 		<Panel title="内存概览" description="按堆的可用部分计算，不含代码段与栈">
 			<Meter
 				label="当前使用率"
@@ -190,12 +196,21 @@
 				</div>
 				<ul class="space-y-1.5">
 					{#each metrics.disk.app_bytes_detail as item (item.name)}
+						<!--
+							这一行的错误文本必须能截断。stat 失败时后端给的是
+							`stat update: no such file or directory` 这样一整句英文，
+							不截断的话它会把这一行顶得比面板还宽、压到面板边框上，
+							而下面两行只有「172 KB」那么短——一行的长度差出四倍，
+							看上去就像文字叠在了一起。
+						-->
 						<li class="flex items-center justify-between gap-3 text-[12px]">
-							<span class="text-fg-muted">{item.name}</span>
+							<span class="shrink-0 text-fg-muted">{item.name}</span>
 							{#if item.error}
-								<span class="text-[11.5px] text-error-ink">{item.error}</span>
+								<span class="min-w-0 truncate text-[11.5px] text-error-ink" title={item.error}
+									>{item.error}</span
+								>
 							{:else}
-								<span class="font-medium tabular-nums">{formatBytes(item.bytes)}</span>
+								<span class="shrink-0 font-medium tabular-nums">{formatBytes(item.bytes)}</span>
 							{/if}
 						</li>
 					{/each}

@@ -27,6 +27,7 @@
 		| '/plugins'
 		| '/system'
 		| '/settings'
+		| '/rbac'
 		| '/profile';
 
 	interface NavItem {
@@ -79,6 +80,10 @@
 			label: '数据与系统',
 			items: [
 				{ path: '/plugins', label: '插件与统计', icon: 'plugins' },
+				// 「谁能改权限」的唯一入口，门槛与系统设置同级（system.maintain）。
+				// 刻意不写 perm —— 门槛统一从 PAGE_PERMISSIONS 查，那张表同时被
+				// 路由守卫使用，写两份就一定会有一处对不上。
+				{ path: '/rbac', label: '角色权限', icon: 'check' },
 				{ path: '/settings', label: '系统设置', icon: 'settings' }
 			]
 		}
@@ -402,6 +407,22 @@
 				<div class="mt-1.5 pl-4 font-mono text-[10px] text-fg-faint">
 					本端 v{appVersion} · 后端 v{version}
 				</div>
+				<!--
+					最低适配版本单独一行，而且默认就显示。
+
+					为什么不只在横幅里出现：横幅只在「本端低于最低适配版本」时弹，
+					而绝大多数时候两者是匹配的——于是这个值算出来了却从来没人看得见，
+					像是白拿的字段。要判断「现在这个后端还能不能配我手上这版后台」，
+					得能看到那个下限在哪。
+
+					什么时候才不显示：老后端没有 min_client_version 字段，
+					那时候显示一个空的下限比不显示更糟。
+				-->
+				{#if minClientVersion}
+					<div class="mt-0.5 pl-4 font-mono text-[10px] text-fg-faint">
+						最低适配 v{minClientVersion}
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</aside>

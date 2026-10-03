@@ -55,6 +55,12 @@ export const PAGE_PERMISSIONS: PagePermission[] = [
 	{ path: '/system', perm: 'system.maintain' },
 	// 系统信息与在线更新会替换服务自身的可执行文件，与 /system 同级。
 	{ path: '/settings', perm: 'system.maintain' },
+	// 在线编辑 Casbin 策略矩阵。与系统维护同级，而且这个门槛就是那条
+	// **不可撤销、且没人持有就没有任何界面能恢复**的 system.maintain——它既是
+	// 改权限这个入口的钥匙，本身又是这套系统最后一道不可自解的锁。
+	// 所以这一页必须共用这张表（而不是在 AppShell 里另写一份），否则会出现
+	// 「菜单里没有、但地址栏能进」：一个连自己都保护不了的权限编辑器。
+	{ path: '/rbac', perm: 'system.maintain' },
 	// 个人中心按设计只挂在右上角的用户菜单里，任何登录用户都能进。
 	{ path: '/profile', perm: undefined }
 ];

@@ -21,10 +21,12 @@ import type {
 	Message,
 	PermissionsResponse,
 	PluginInfo,
+	PolicyView,
 	Project,
 	ProjectCamera,
 	ProjectStats,
 	RoleInfo,
+	RolePermissionsResult,
 	ServerStatus,
 	SetupApplyPayload,
 	SetupApplyResult,
@@ -68,10 +70,20 @@ export const TOKEN_KEY = 'admin_token';
 /** Raised for any non-2xx response so callers can show `error.message`. */
 export class ApiError extends Error {
 	readonly status: number;
-	constructor(message: string, status: number) {
+	/**
+	 * 响应体里的 `code`，没有就是空串。
+	 *
+	 * 少数接口用它决定界面怎么处置，HTTP 状态码表达不了这个差别——权限编辑
+	 * 接口的 policy_conflict（409，本次已回滚）与 unknown_role（400，刷新就好）
+	 * 都只是「没保存」，但一个要保留草稿、一个要丢掉。编码进 message 的话
+	 * 调用点就得去匹配中文句子，而中文句子一改就静默失配。
+	 */
+	readonly code: string;
+	constructor(message: string, status: number, code = '') {
 		super(message);
 		this.name = 'ApiError';
 		this.status = status;
+		this.code = code;
 	}
 }
 
@@ -190,12 +202,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 	}
 
 	if (!response.ok) {
+		const body =
+			data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : null;
 		const message =
-			data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
-				? data.error
-				: `请求失败 (HTTP ${response.status})`;
+			body && typeof body.error === 'string' ? body.error : `请求失败 (HTTP ${response.status})`;
+		const code = body && typeof body.code === 'string' ? body.code : '';
 		handleUnauthorized(path, response.status);
-		throw new ApiError(message, response.status);
+		throw new ApiError(message, response.status, code);
 	}
 
 	return data as T;
@@ -311,6 +324,40 @@ export const api = {
 	// --- roles ---
 	/** 角色清单（含中文名与等级），任意登录用户可读。 */
 	roles: () => request<RoleInfo[]>('/api/roles'),
+
+	// --- rbac（在线权限编辑，后端守卫 system.maintain） ---
+	/**
+	 * 当前生效的权限矩阵。
+	 *
+	 * 与 permissions() 完全是两回事：那条只回答「我自己能干什么」，任何登录
+	 * 用户都能问；这条返回全量策略（谁有什么权限），只给能改策略的人看。
+	 * 别拿 permissions() 的响应去填这张矩阵——那会让页面显示成「只有我的角色
+	 * 有权限」，而其余行全空。
+	 *
+	 * holders 与 grants 都是后端从**生效中**的策略现算的，与库里那一行不一致
+	 * 时以现算的为准：界面照着库里那份显示会让人以为某项权限没生效（于是反复
+	 * 勾选），而真相是它生效了、只是被脏行挡住。
+	 */
+	policy: () => request<PolicyView>('/api/rbac/policy'),
+
+	/**
+	 * 把某个角色的权限集合**整体替换**成 permissions 里的那一组。
+	 *
+	 * 语义是「改成这样」而不是「追加」：没出现在列表里的权限一律变成不授予。
+	 * 界面渲染的是一整张勾选表，提交的就是全量。
+	 *
+	 * ⚠️ 传空数组是一次**合法**操作（把该角色的权限全部收走），不要当成
+	 * 「没什么可改的」而跳过请求——后端靠列表本身区分「清空」与「没这个字段」。
+	 *
+	 * 失败时响应的 `code` 由 ApiError.code 带出来（protected / unknown_role /
+	 * unknown_permission / policy_conflict / policy_unavailable），见
+	 * $lib/rbac-matrix 的 policyFailure。
+	 */
+	setRolePermissions: (role: string, permissions: string[]) =>
+		request<RolePermissionsResult>(`/api/rbac/roles/${encodeURIComponent(role)}/permissions`, {
+			method: 'PUT',
+			body: { permissions }
+		}),
 
 	// --- system（仅超级管理员） ---
 	systemInfo: () => request<SystemInfo>('/api/system/info'),

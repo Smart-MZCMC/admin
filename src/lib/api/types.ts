@@ -86,6 +86,63 @@ export interface PermissionsResponse {
 	permissions: string[];
 }
 
+/** GET /api/rbac/policy 的一项权限，对应后端 rbac.PermissionView。 */
+export interface PolicyPermissionView {
+	name: string;
+	/** 后端给的中文名。与 $lib/rbac 的 PERMISSION_LABELS 应一致，但以这里为准。 */
+	label: string;
+	/**
+	 * 受保护：不可撤销，且只允许授予受保护角色（后端 rbac.protectedPermissions）。
+	 *
+	 * 界面上这一列的每一格都必须画成不可点——点了也只会被 403 挡回来，
+	 * 而一个「点了必定失败」的开关看上去就像防线没设。
+	 */
+	protected: boolean;
+	/** 当前持有它的角色值。**从生效中的策略现算**，不是从库里读出来的。 */
+	holders: string[];
+}
+
+/** GET /api/rbac/policy 的一个角色，对应后端 rbac.RoleView。 */
+export interface PolicyRoleView {
+	value: Role;
+	label: string;
+	level: number;
+	/** 受保护：整行不可改（后端 rbac.protectedRoles，目前只有超级管理员）。 */
+	protected: boolean;
+	/** 当前生效的权限集合。同样是从生效策略现算的。 */
+	grants: string[];
+}
+
+/**
+ * GET /api/rbac/policy — 当前生效的权限矩阵，供 /rbac 页面一屏渲染。
+ *
+ * `source` 是关键：**'database'** 表示准入判断用的就是 role_permissions 表里
+ * 那一套；**'embedded'** 表示策略表读不出来，已退回程序内嵌的 policy.csv，
+ * 此刻的勾选反映的是文件里的版本——界面上做的改动会写进数据库，但要等下次
+ * 重载才生效。不显示它的话，管理员会在「保存成功」之后继续按旧策略排查问题。
+ *
+ * `warnings` 是后端给的原文透传（受保护规则的理由、已退回内嵌的原因、脏数据），
+ * 刻意不做结构化：这些句子本来就只有人能读，拆成字段反而会有人在界面上
+ * 拼一句更短但信息更少的版本。
+ */
+export interface PolicyView {
+	source: string;
+	warnings: string[];
+	permissions: PolicyPermissionView[];
+	roles: PolicyRoleView[];
+}
+
+/** PUT /api/rbac/roles/:role/permissions 的成功响应，对应后端 rbac.Change。 */
+export interface RolePermissionsResult {
+	role: Role;
+	/** 本次新授予的权限。 */
+	granted: string[];
+	/** 本次被取消的权限。 */
+	revoked: string[];
+	source: string;
+	warnings: string[];
+}
+
 export interface AuthUser {
 	id: number;
 	username: string;
