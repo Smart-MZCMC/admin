@@ -9,6 +9,7 @@
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
+import { shouldEndSession } from './session';
 import type {
 	AuditLogsResponse,
 	AuthUser,
@@ -39,6 +40,7 @@ import type {
 	User,
 	UserProject
 } from './types';
+import { normalisePolicyView, normaliseRolePermissions } from '../rbac-matrix';
 
 /**
  * 创建/更新项目的请求体。
@@ -67,7 +69,15 @@ const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
 
 export const TOKEN_KEY = 'admin_token';
 
-/** Raised for any non-2xx response so callers can show `error.message`. */
+/**
+ * Raised for any non-2xx response.
+ *
+ * `message` 是给管理员看的正式文案，`detail` 是原始技术信息（HTTP 状态行、
+ * fetch 异常、后端原文）——两者分开是为了让界面不必在「看不懂的原始报错」
+ * 与「什么都不说」之间二选一：正文显示 message，需要排查时把 detail 放进
+ * `title`。渲染处若只是弹一条 toast（ToastHost 没有 title），也仍应显示
+ * message 而不是 detail。
+ */
 export class ApiError extends Error {
 	readonly status: number;
 	/**
@@ -79,12 +89,46 @@ export class ApiError extends Error {
 	 * 调用点就得去匹配中文句子，而中文句子一改就静默失配。
 	 */
 	readonly code: string;
-	constructor(message: string, status: number, code = '') {
+	/**
+	 * 原始技术信息，供排查用：后端返回的原文、HTTP 状态行、fetch 的原始异常。
+	 *
+	 * 为什么单独一个字段而不是拼进 message：`message` 是直接呈现给管理员看的
+	 * 正式文案，里面出现 `HTTP 502`、`Unexpected token <` 这类东西既看不懂也
+	 * 没法照着办。原文一律放这里，由渲染处放进 `title`（悬停可见），
+	 * 便于报障时截图或复制。
+	 */
+	readonly detail: string;
+	constructor(message: string, status: number, code = '', detail = '') {
 		super(message);
 		this.name = 'ApiError';
 		this.status = status;
 		this.code = code;
+		this.detail = detail;
 	}
+}
+
+/**
+ * HTTP 状态码 → 一句管理员看得懂、也知道下一步该做什么的话。
+ *
+ * 只在响应里**没有可读的中文错误说明**时使用（见 request 里对 body.error 的
+ * 判断）。后端自己写的说明（「用户名已存在」「不能删除自己的账号」）本身就是
+ * 面向人的文案，直接用；返回 HTML 错误页、空 body、或只带一个英文异常名的
+ * 才落到这里——那些才是需要翻译的原始报错。
+ *
+ * 逐档写而不是从状态码推：`4xx` 与 `5xx` 的处置完全不同，而 401 与 403
+ * 在这个系统里更是两件事（前者会话没了，后者是当前账号真的没这项权限）。
+ */
+function statusMessage(status: number): string {
+	if (status === 0) return '无法连接到服务器，请检查网络后重试。';
+	if (status === 401) return '登录状态已失效，请重新登录。';
+	if (status === 403) return '当前账号没有执行该操作的权限。';
+	if (status === 404) return '请求的内容不存在，可能已被删除。';
+	if (status === 409) return '数据已被其他操作修改，请刷新后重试。';
+	if (status === 413) return '提交的内容过大，请缩减后重试。';
+	if (status === 422) return '提交的内容未通过校验，请检查后重试。';
+	if (status === 429) return '操作过于频繁，请稍后再试。';
+	if (status >= 500) return '服务器处理请求时出错，请稍后重试。';
+	return '请求未能完成，请稍后重试。';
 }
 
 export function getToken(): string {
@@ -110,23 +154,13 @@ interface RequestOptions {
 }
 
 /**
- * 这些接口的 4xx/5xx 都不是「会话过期」，不能触发统一登出。
+ * 会话失效时的统一处理。
  *
- * 登录与注册本身会返回 401/403；初始化向导在系统还没有任何账号时被调用，
- * 参数错误（400）、已初始化（403）、或初始化模式下的 503 都要原样展示给用户
- * ——之前的实现会把它们当成令牌失效，直接把人踢回登录页，向导页刚填的内容
- * 一整屏就没了。
- */
-const NO_SESSION_PATHS = new Set([
-	'/api/auth/login',
-	'/api/auth/admin-login',
-	'/api/auth/register',
-	'/api/setup/status',
-	'/api/setup/apply'
-]);
-
-/**
- * 会话过期时的统一处理。
+ * 判定在 $lib/api/session 的 shouldEndSession 里（那里有完整理由）：只有 401
+ * 才算会话没了。403 是当前用户的真实权限状态；400 / 409 / 5xx 都是请求或服务端
+ * 的问题。权限编辑页把这条规则放大到肉眼可见——后端对「你选的角色不存在」回的是
+ * 400 unknown_role，界面本该显示「刷新页面后再试」，却因为这里曾经把它当成会话
+ * 失效而把人踢回登录页，于是那句话一次也显示不出来。
  *
  * 后端现在会为未授权返回带可读消息的 JSON 错误体，所以能可靠判定
  * 「令牌无效」而不是网络故障。补上这个分支之前，所有未授权响应都是
@@ -151,9 +185,7 @@ export function onSessionLost(handler: () => void): () => void {
 
 function handleUnauthorized(path: string, status: number): void {
 	if (redirecting) return;
-	if (NO_SESSION_PATHS.has(path)) return;
-	// 403 是当前用户的真实权限状态，不该把登录态踢掉。
-	if (status === 403) return;
+	if (!shouldEndSession(path, status)) return;
 	redirecting = true;
 	clearToken();
 	// 令牌没了，权限必须跟着没。否则界面上留着旧权限、而每个请求都是 401，
@@ -166,6 +198,18 @@ function handleUnauthorized(path: string, status: number): void {
 	}
 }
 
+/**
+ * 所有请求的统一入口，也是「原始报错不直接给用户」这条规则的落点。
+ *
+ * 三种失败各自的处置：
+ *  - fetch 直接 reject（断网、DNS、反代掐断）→ status 0 + statusMessage(0)。
+ *  - 响应不是 2xx，但带后端写的中文说明 → 原文就是面向人的文案，直接用。
+ *  - 响应不是 2xx 且拿不到可读说明（HTML 错误页、空 body、只带英文异常名）
+ *    → statusMessage(status) 给一句能照着办的话，原文进 detail。
+ *
+ * 三种情况都把原文带在 detail 上，所以任何渲染处只要把 detail 放进 title
+ * 就能照着排查，不必把 `HTTP 502` 这类东西印在正文里。
+ */
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
 	const { method = 'GET', body, raw = false } = options;
 
@@ -181,12 +225,19 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 			headers,
 			body: body === undefined ? undefined : JSON.stringify(body)
 		});
-	} catch {
-		throw new ApiError('无法连接到服务器', 0);
+	} catch (err) {
+		throw new ApiError(statusMessage(0), 0, '', err instanceof Error ? err.message : '');
 	}
 
 	if (raw) {
-		if (!response.ok) throw new ApiError(`导出失败 (HTTP ${response.status})`, response.status);
+		if (!response.ok) {
+			throw new ApiError(
+				'导出失败，请稍后重试。',
+				response.status,
+				'',
+				`HTTP ${response.status} ${response.statusText}`
+			);
+		}
 		return (await response.text()) as T;
 	}
 
@@ -204,11 +255,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 	if (!response.ok) {
 		const body =
 			data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : null;
-		const message =
-			body && typeof body.error === 'string' ? body.error : `请求失败 (HTTP ${response.status})`;
+		const readable = body && typeof body.error === 'string' ? body.error.trim() : '';
+		// 后端自己写的中文说明是面向人的文案，直接用；只有拿不到时才按状态码
+		// 给一句能照着办的话。两种情况都把原始响应留在 detail 里。
+		const message = readable !== '' ? readable : statusMessage(response.status);
 		const code = body && typeof body.code === 'string' ? body.code : '';
+		const detail = readable !== '' ? readable : `HTTP ${response.status} ${response.statusText}`;
 		handleUnauthorized(path, response.status);
-		throw new ApiError(message, response.status, code);
+		throw new ApiError(message, response.status, code, detail);
 	}
 
 	return data as T;
@@ -337,8 +391,12 @@ export const api = {
 	 * holders 与 grants 都是后端从**生效中**的策略现算的，与库里那一行不一致
 	 * 时以现算的为准：界面照着库里那份显示会让人以为某项权限没生效（于是反复
 	 * 勾选），而真相是它生效了、只是被脏行挡住。
+	 *
+	 * 响应会先过 normalisePolicyView：后端把 nil 切片序列化成 null，一个角色的
+	 * 权限被清空时 grants 就是 null，而渲染路径上直接读 `grants.includes` 会把
+	 * 整块矩阵掀掉。归一在边界做，页面拿到的永远是数组。
 	 */
-	policy: () => request<PolicyView>('/api/rbac/policy'),
+	policy: async () => normalisePolicyView(await request<PolicyView>('/api/rbac/policy')),
 
 	/**
 	 * 把某个角色的权限集合**整体替换**成 permissions 里的那一组。
@@ -349,15 +407,24 @@ export const api = {
 	 * ⚠️ 传空数组是一次**合法**操作（把该角色的权限全部收走），不要当成
 	 * 「没什么可改的」而跳过请求——后端靠列表本身区分「清空」与「没这个字段」。
 	 *
+	 * ⚠️ 成功响应里的 granted / revoked 会先过 normaliseRolePermissions：只要本次
+	 * 没有新增，「新增」那一项就是 null（Go 的 nil 切片），页面直接读它的 length
+	 * 会在「保存成功」的同一刻崩掉。
+	 *
 	 * 失败时响应的 `code` 由 ApiError.code 带出来（protected / unknown_role /
 	 * unknown_permission / policy_conflict / policy_unavailable），见
 	 * $lib/rbac-matrix 的 policyFailure。
 	 */
-	setRolePermissions: (role: string, permissions: string[]) =>
-		request<RolePermissionsResult>(`/api/rbac/roles/${encodeURIComponent(role)}/permissions`, {
-			method: 'PUT',
-			body: { permissions }
-		}),
+	setRolePermissions: async (role: string, permissions: string[]) =>
+		normaliseRolePermissions(
+			await request<RolePermissionsResult>(
+				`/api/rbac/roles/${encodeURIComponent(role)}/permissions`,
+				{
+					method: 'PUT',
+					body: { permissions }
+				}
+			)
+		),
 
 	// --- system（仅超级管理员） ---
 	systemInfo: () => request<SystemInfo>('/api/system/info'),

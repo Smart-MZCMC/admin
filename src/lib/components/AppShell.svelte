@@ -72,7 +72,7 @@
 			items: [
 				{ path: '/projects', label: '项目管理', icon: 'projects' },
 				{ path: '/users', label: '用户管理', icon: 'users' },
-				{ path: '/assign', label: '权限分配', icon: 'assign' }
+				{ path: '/assign', label: '项目授权', icon: 'assign' }
 			]
 		},
 		{
@@ -142,14 +142,14 @@
 	 * 个人中心按设计只在用户菜单里，不占侧边栏位置，所以 flatNav 里没有它，
 	 * 而面包屑找不到时会回退成「总览」——在个人中心页上显示「总览」是错的。
 	 */
-	const extraPageLabels: Record<string, string> = { '/profile': '个人中心' };
+	const extraPageLabels: Record<string, string> = { [resolve('/profile')]: '个人中心' };
 
 	const currentLabel = $derived(
 		flatNav.find((item) => normalise(resolve(item.path)) === current)?.label ??
 			extraPageLabels[current] ??
 			'总览'
 	);
-	const displayName = $derived(auth.user?.display_name || auth.user?.username || '管理员');
+	const displayName = $derived(auth.user?.display_name || auth.user?.username || '当前账号');
 	/**
 	 * 右上角的角色标签。
 	 *
@@ -228,9 +228,22 @@
 					.slice(0, 8)
 	);
 
+	/**
+	 * 全局状态轮询：1 秒。
+	 *
+	 * 这个端点（`GET /api/status`）只读内存里的版本号与在线数，没有 IO，实测
+	 * 中位 2.8ms，所以 1 秒一轮的代价是常驻约 0.17% 单核，可以忽略。
+	 *
+	 * 与 /admin/system 的 3 秒区分开是有意的：那边每次要递归遍历 3 个目录并执行
+	 * 一次真实查询，1 秒一轮就是常驻遍历文件系统，且随 storage/logs 增长而变贵。
+	 * 这里轮询得勤快没有代价，而「断线立刻感知」正需要这个频率。
+	 *
+	 * 这里用 setInterval 而非 setTimeout 链式是有意的：标签页隐藏时浏览器会降频
+	 * setInterval，而看不见的标签页本来就不需要实时状态——让它降频是对的。
+	 */
 	$effect(() => {
 		void refreshStatus();
-		const timer = setInterval(() => void refreshStatus(), 15000);
+		const timer = setInterval(() => void refreshStatus(), 1000);
 		return () => clearInterval(timer);
 	});
 
@@ -271,7 +284,7 @@
 
 	function logout() {
 		auth.logout();
-		feedback.info('已退出登录');
+		feedback.info('已退出登录。');
 		void goto(resolve('/login'), { replaceState: true });
 	}
 
@@ -395,7 +408,7 @@
 					></span>
 				</span>
 				<span class="truncate text-[11px] text-fg-muted">
-					{online === null ? '服务未连接' : `在线客户端 ${online}`}
+					{online === null ? '未连接到服务端' : `在线客户端 ${online}`}
 				</span>
 			</div>
 			<!--
@@ -560,7 +573,7 @@
 							<div class="border-b border-border px-3.5 py-3">
 								<div class="truncate text-[12.5px] font-medium text-fg">{displayName}</div>
 								<div class="mt-0.5 truncate text-[11px] text-fg-faint">
-									{auth.user?.username ? `@${auth.user.username}` : '当前登录账户'}
+									{auth.user?.username ? `@${auth.user.username}` : '当前登录账号'}
 								</div>
 							</div>
 							<div class="p-1">

@@ -135,7 +135,7 @@
 			total = result.total ?? 0;
 			nextCursor = result.has_more ? result.next_cursor : 0;
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载日志失败');
+			feedback.error(err instanceof Error ? err.message : '协调日志加载失败。');
 			messages = [];
 			total = 0;
 			nextCursor = 0;
@@ -160,7 +160,7 @@
 			messages = [...messages, ...(result.messages ?? [])];
 			nextCursor = result.has_more ? result.next_cursor : 0;
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载更多失败');
+			feedback.error(err instanceof Error ? err.message : '后续记录加载失败。');
 		} finally {
 			loadingMore = false;
 		}
@@ -182,7 +182,7 @@
 			auditNextCursor = result.has_more ? result.next_cursor : 0;
 			auditLoaded = true;
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载操作审计失败');
+			feedback.error(err instanceof Error ? err.message : '操作审计加载失败。');
 			auditLogs = [];
 			auditTotal = 0;
 			auditNextCursor = 0;
@@ -207,7 +207,7 @@
 			auditLogs = [...auditLogs, ...(result.logs ?? [])];
 			auditNextCursor = result.has_more ? result.next_cursor : 0;
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载更多失败');
+			feedback.error(err instanceof Error ? err.message : '后续记录加载失败。');
 		} finally {
 			auditLoadingMore = false;
 		}
@@ -288,11 +288,11 @@
 	 */
 	async function exportJson() {
 		if (!filterProject) {
-			feedback.error('请先选择要导出的项目');
+			feedback.error('请先选择要导出的项目。');
 			return;
 		}
 		if (!filterFrom || !filterTo) {
-			feedback.error('请先选择时间范围（导出接口要求 from/to 必填）');
+			feedback.error('请先选择时间范围。导出操作必须指定起始时间与结束时间。');
 			return;
 		}
 		exporting = true;
@@ -305,11 +305,11 @@
 			);
 			feedback.success(
 				result.truncated
-					? `已导出 ${result.count} 条（触及 ${result.limit} 行上限，请缩小时间范围后再导一次）`
-					: `已导出 ${result.count} 条日志`
+					? `已导出 ${result.count} 条。已达到 ${result.limit} 行的上限，请缩小时间范围后重新导出。`
+					: `已导出 ${result.count} 条协调日志。`
 			);
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '导出失败');
+			feedback.error(err instanceof Error ? err.message : '导出失败。');
 		} finally {
 			exporting = false;
 		}
@@ -324,7 +324,7 @@
 	 */
 	function exportCsv() {
 		if (messages.length === 0) {
-			feedback.error('当前没有可导出的日志');
+			feedback.error('当前没有可导出的协调日志。');
 			return;
 		}
 		const header = [
@@ -353,7 +353,7 @@
 			);
 		}
 		download(`logs-${stamp()}.csv`, '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
-		feedback.success(`已导出 ${messages.length} 条日志`);
+		feedback.success(`已导出 ${messages.length} 条协调日志。`);
 	}
 
 	async function runCleanup() {
@@ -362,12 +362,12 @@
 			const days = Number(cleanupDays) || 30;
 			const result = await api.cleanupLogs(days);
 			cleanupOpen = false;
-			feedback.success(result.message || `已清理 ${result.count} 条日志`);
+			feedback.success(result.message || `已清理 ${result.count} 条协调日志。`);
 			await load();
 			// 清理本身也会写一条审计记录，切到那个 Tab 就能看到。
 			if (auditLoaded) await loadAudit();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '清理失败');
+			feedback.error(err instanceof Error ? err.message : '清理失败。');
 		} finally {
 			cleaning = false;
 		}
@@ -386,7 +386,7 @@
 
 <PageHeader
 	title="日志与审计"
-	description="协调日志记录实时通信内容；操作审计记录谁改动了账号、项目与数据。"
+	description="协调日志记录各客户端的实时通信内容；操作审计记录账号、项目与数据的变更操作。"
 >
 	{#snippet actions()}
 		<Button
@@ -395,7 +395,7 @@
 			disabled={tab === 'audit' ? auditLoading : loading}
 			onclick={() => (tab === 'audit' ? void loadAudit() : void load())}
 		>
-			重新查询
+			刷新
 		</Button>
 	{/snippet}
 </PageHeader>
@@ -416,7 +416,7 @@
 	<div class="space-y-5">
 		<Panel
 			title="检索条件"
-			description="按项目、类型、发送者与时间范围检索；默认最近 7 天、100 条。"
+			description="可按项目、消息类型、发送者与时间范围筛选，默认查询最近 7 天内的 100 条记录。"
 		>
 			<div class="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
 				<label class="block">
@@ -472,7 +472,7 @@
 
 			<div class="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
 				<Button variant="primary" disabled={loading} onclick={() => void load()}>
-					{loading ? '查询中...' : '查询'}
+					{loading ? '查询中…' : '查询'}
 				</Button>
 				<!--
 					导出与清理各要一项权限，且互不相同（log.export / log.cleanup），
@@ -485,10 +485,10 @@
 						disabled={exporting}
 						onclick={() => void exportJson()}
 					>
-						{exporting ? '导出中...' : '导出 JSON'}
+						{exporting ? '导出中…' : '导出 JSON'}
 					</Button>
 					<Button variant="secondary" icon="download" onclick={exportCsv}>
-						导出 CSV（当前结果）
+						导出 CSV（当前查询结果）
 					</Button>
 				{/if}
 				{#if canCleanup}
@@ -497,7 +497,7 @@
 					</Button>
 				{/if}
 				<span class="ml-auto text-[11.5px] text-fg-muted">
-					匹配 {total} 条，已加载 {messages.length} 条
+					共匹配 {total} 条，已加载 {messages.length} 条
 				</span>
 			</div>
 		</Panel>
@@ -508,7 +508,7 @@
 				rows={messages}
 				rowKey={(message) => message.id}
 				{loading}
-				emptyText="没有符合当前条件的日志记录"
+				emptyText="没有符合当前筛选条件的协调日志"
 			>
 				{#snippet cell(message, column)}
 					{#if column.key === 'id'}
@@ -535,7 +535,7 @@
 								这时退回 #id：显示「未知」会让人以为系统没记录发送者，
 								而实际上有 id、只是人没了。
 							-->
-							<span class="text-fg-faint">已注销</span>
+							<span class="text-fg-faint">账号已注销</span>
 							<span class="ml-1 font-mono text-[11px] text-fg-faint">#{message.sender_id}</span>
 						{/if}
 					{:else if column.key === 'type'}
@@ -559,7 +559,7 @@
 								disabled={loadingMore}
 								onclick={() => void loadMore()}
 							>
-								{loadingMore ? '加载中...' : '加载更多'}
+								{loadingMore ? '加载中…' : '加载更多'}
 							</Button>
 						{/if}
 					</div>
@@ -604,7 +604,7 @@
 
 				<div class="flex items-end">
 					<Button full variant="primary" disabled={auditLoading} onclick={() => void loadAudit()}>
-						{auditLoading ? '查询中...' : '查询'}
+						{auditLoading ? '查询中…' : '查询'}
 					</Button>
 				</div>
 			</div>
@@ -612,7 +612,7 @@
 
 		<Panel
 			title="操作审计"
-			description="删除账号、改角色、项目增删改、权限授予撤销、日志清理、改个人资料都会留痕。"
+			description="删除账号、调整角色、增删改项目、授予或撤销权限、清理日志、修改个人资料都会留痕。"
 			bodyClass="p-0"
 		>
 			<DataTable
@@ -658,7 +658,7 @@
 								disabled={auditLoadingMore}
 								onclick={() => void loadMoreAudit()}
 							>
-								{auditLoadingMore ? '加载中...' : '加载更多'}
+								{auditLoadingMore ? '加载中…' : '加载更多'}
 							</Button>
 						{/if}
 					</div>
@@ -671,8 +671,8 @@
 <ConfirmDialog
 	visible={cleanupOpen}
 	title="清理过期日志"
-	message="将删除早于指定天数的全部消息记录。此操作不可撤销，但会留下一条操作审计记录。"
-	confirmText={cleaning ? '清理中...' : '确认清理'}
+	message="将删除早于指定天数的全部协调日志记录。此操作不可撤销，系统会留下一条操作审计记录。"
+	confirmText={cleaning ? '清理中…' : '确认清理'}
 	danger
 	onconfirm={runCleanup}
 	onclose={() => (cleanupOpen = false)}

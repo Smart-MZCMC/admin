@@ -4,10 +4,13 @@ import {
 	diffGrants,
 	draftFrom,
 	isLockedCell,
+	normalisePolicyView,
+	normaliseRolePermissions,
 	pendingChange,
 	policyFailure,
 	sortedRoles,
 	submittablePermissions,
+	toNameList,
 	type PolicyFailureKind
 } from './rbac-matrix';
 import {
@@ -15,7 +18,9 @@ import {
 	ROLE_LABELS,
 	ROLE_LEVELS,
 	type PolicyPermissionView,
-	type PolicyRoleView
+	type PolicyRoleView,
+	type PolicyView,
+	type RolePermissionsResult
 } from './api/types';
 import { BACKEND_LABELS, BACKEND_PERMISSIONS, POLICY_BY_ROLE } from './rbac.fixture';
 
@@ -123,6 +128,51 @@ describe('submittablePermissions', () => {
 		]);
 		expect(submitted).not.toContain('permission.i.made.up');
 		expect(submitted).toEqual(director.grants);
+	});
+
+	/**
+	 * 绕开 UI、直接把整张矩阵当草稿塞进去的那条路。
+	 *
+	 * 前两条用例是「往草稿里塞一项」，这一条是「把界面能做的事做到极端」：把
+	 * **每一列**都勾上（含受保护的那一列），并且从一个脏数据角色出发（它的
+	 * grants 里真的挂着一项受保护权限——库里被手改过就会出现，而界面照实显示）。
+	 *
+	 * 这里断言的是「一个受保护的名字都不许出现在请求体里」，而不是「结果等于
+	 * 某个数组」：后者在实现退化成只过滤已知项时也可能照样通过。
+	 */
+	it('把整张矩阵塞进草稿也一个受保护的项都传不出去', () => {
+		const { permissions, roles } = matrix();
+		const dirty = roleOf(roles, 'logistics');
+		const dirtyRole: PolicyRoleView = { ...dirty, grants: [...dirty.grants, 'system.maintain'] };
+		const everything = [...permissions.map((perm) => perm.name), 'system.maintain'];
+
+		const submitted = submittablePermissions(dirtyRole, permissions, everything);
+		expect(submitted).not.toContain('system.maintain');
+		// 受保护的项不在基线里，所以也不该被算成「本次要撤销它」。
+		const change = pendingChange(dirtyRole, permissions, everything);
+		expect(change.revoked).toEqual([]);
+		expect(change.granted).not.toContain('system.maintain');
+		// 每一项可改的都确实提交了——防的是「过滤过头变成空数组」这种反向错误。
+		expect(submitted).toEqual(
+			permissions.filter((perm) => !perm.protected).map((perm) => perm.name)
+		);
+		expect(submitted.length).toBe(permissions.length - 1);
+	});
+
+	it('归一后的响应里受保护的项照样进不了提交集合（边界与数据层串起来）', () => {
+		const { permissions, roles } = matrix();
+		// 走一遍真实形状：先归一后端响应，再从里面挑出角色来提交。
+		const view = normalisePolicyView({ ...matrix(), source: 'database', warnings: [] });
+		const normalisedAdmin = view.roles.find((r) => r.value === 'admin');
+		if (!normalisedAdmin) throw new Error('归一之后不该丢掉任何角色');
+
+		const submitted = submittablePermissions(normalisedAdmin, view.permissions, [
+			...normalisedAdmin.grants,
+			'system.maintain'
+		]);
+		expect(submitted).not.toContain('system.maintain');
+		expect(submitted).toEqual(roleOf(roles, 'admin').grants);
+		expect(permissions.length).toBeGreaterThan(0);
 	});
 
 	it('输出按列顺序，与界面上从左到右一致', () => {
@@ -325,7 +375,7 @@ describe('policyFailure', () => {
 		expect(staleFailure.message).toContain('刷新');
 	});
 
-	it('没带 code 的失败（断网 / 500）归 unknown：保留勾选，但不自动刷新', () => {
+	it('没带 code 的失败（断网 / 500 / 网关 HTML）归 unknown：保留勾选，但不自动刷新', () => {
 		const failure = policyFailure(undefined, '无法连接到服务器');
 		expect(failure.kind).toBe('unknown');
 		expect(failure.code).toBe('');
@@ -334,9 +384,185 @@ describe('policyFailure', () => {
 		expect(failure.message).toContain('无法连接到服务器');
 	});
 
+	/**
+	 * 非 JSON 的响应体必须给出一句能照着做的话。
+	 *
+	 * 后端进程挂掉时 fetch 会直接 reject（走「无法连接到服务器」），而网关 502
+	 * 返回的是 HTML、`ApiError.message` 只会是「请求失败 (HTTP 502)」。这时候
+	 * 界面若只把这句话原样弹出来，用户无法判断刚才的勾选还算不算数——多半会
+	 * 去刷新页面把半小时的选择填一遍。所以这一档必须明说「选择已保留」。
+	 */
+	it('响应体不是 JSON 时也说清「勾的内容还在」，而不是只丢一个 HTTP 状态码', () => {
+		const html = policyFailure('', '请求失败 (HTTP 502)');
+		expect(html.message).not.toContain('undefined');
+		expect(html.message).not.toContain('null');
+		expect(html.message).toContain('HTTP 502');
+		expect(html.message).toContain('已保留');
+		expect(html.reload).toBe(false);
+		expect(html.keepDraft).toBe(true);
+
+		const emptyBody = policyFailure('', '请求失败 (HTTP 500)');
+		expect(emptyBody.message).toContain('已保留');
+		expect(emptyBody.message).toContain('再点一次保存');
+	});
+
 	it('后端没给说明时也不出现「undefined」或半句话', () => {
 		const failure = policyFailure('policy_conflict', '   ');
 		expect(failure.message).not.toContain('undefined');
 		expect(failure.message).toContain('本次没有生效');
+	});
+});
+
+/**
+ * 响应归一：Go 把 nil 切片序列化成 `null` 这件事，害得整页在保存成功的同一刻崩掉。
+ *
+ * 这组用例直接照抄后端**真实发出过**的响应体（实测记录）：
+ *
+ *	{"granted":null,"revoked":["log.view", …],"role":"director",
+ *	 "source":"database","warnings":[…]}
+ *
+ * 只要 granted 是 null，`describeChange` 里的 `granted.length` 就抛 TypeError，
+ * 而它在渲染/回调路径上——于是用户看到的是「报错了」，实际发生的是「已经生效了」。
+ */
+describe('normaliseRolePermissions', () => {
+	const wire: RolePermissionsResult = {
+		role: 'director',
+		granted: null as unknown as string[],
+		revoked: ['log.view', 'project.view'],
+		source: 'database',
+		warnings: null as unknown as string[]
+	};
+
+	it('granted 为 null（本次没有新增）时归一成空数组，不抛异常', () => {
+		const result = normaliseRolePermissions(wire);
+		expect(result.granted).toEqual([]);
+		expect(() => describeChange(result.granted, result.revoked)).not.toThrow();
+		expect(describeChange(result.granted, result.revoked)).toContain('取消了');
+	});
+
+	it('revoked 为 null（本次没有取消）时归一成空数组', () => {
+		const result = normaliseRolePermissions({
+			...wire,
+			granted: ['log.export'],
+			revoked: null as unknown as string[]
+		});
+		expect(result.revoked).toEqual([]);
+		expect(describeChange(result.granted, result.revoked)).toContain('新增了');
+	});
+
+	it('两个方向都空时说的是「没有任何变化」，不是 undefined', () => {
+		const result = normaliseRolePermissions({
+			...wire,
+			granted: null as unknown as string[],
+			revoked: null as unknown as string[]
+		});
+		expect(describeChange(result.granted, result.revoked)).toBe('没有任何变化');
+	});
+
+	it('warnings 为 null 也归一成空数组（页面上要读它的 length）', () => {
+		expect(normaliseRolePermissions(wire).warnings).toEqual([]);
+	});
+
+	it('非字符串元素被丢掉，不会变成界面上的 undefined', () => {
+		const result = normaliseRolePermissions({
+			...wire,
+			granted: ['log.export', 42, null, undefined] as unknown as string[]
+		});
+		expect(result.granted).toEqual(['log.export']);
+	});
+});
+
+describe('toNameList', () => {
+	it('非数组一律给空数组（缺字段、null、对象都不该让页面崩）', () => {
+		expect(toNameList(undefined)).toEqual([]);
+		expect(toNameList(null)).toEqual([]);
+		expect(toNameList('log.view')).toEqual([]);
+		expect(toNameList({ 0: 'log.view' })).toEqual([]);
+	});
+
+	it('返回的是新数组，往里 push 不会污染原始响应', () => {
+		const source = ['log.view'];
+		const out = toNameList(source);
+		out.push('project.view');
+		expect(source).toEqual(['log.view']);
+	});
+});
+
+describe('normalisePolicyView', () => {
+	/** 真实响应形状，但把三个列表字段换成 null（Go 的 nil 切片）。 */
+	const wire = {
+		source: 'database',
+		warnings: null as unknown as string[],
+		permissions: [
+			{
+				name: 'system.maintain',
+				label: '维护',
+				protected: true,
+				holders: null as unknown as string[]
+			}
+		],
+		roles: [
+			{
+				value: 'logistics' as const,
+				label: '后勤',
+				level: 10,
+				protected: false,
+				grants: null as unknown as string[]
+			}
+		]
+	} as unknown as PolicyView;
+
+	it('grants 为 null 的角色照样能渲染（把权限清空就是这种形状）', () => {
+		const view = normalisePolicyView(wire);
+		const logistics = view.roles[0];
+		expect(logistics.grants).toEqual([]);
+		// 界面上就是这一行在读 grants.includes
+		expect(logistics.grants.includes('log.view')).toBe(false);
+	});
+
+	it('holders 与 warnings 为 null 时归一成空数组', () => {
+		const view = normalisePolicyView(wire);
+		expect(view.permissions[0].holders).toEqual([]);
+		expect(view.warnings).toEqual([]);
+		expect(view.warnings.length).toBe(0);
+	});
+
+	it('受保护的标记原样保留：归一不得放宽任何一格', () => {
+		const view = normalisePolicyView(wire);
+		const perm = view.permissions[0];
+		const logistics = view.roles[0];
+		expect(perm.protected).toBe(true);
+		expect(isLockedCell(logistics, perm)).toBe(true);
+		expect(submittablePermissions(logistics, view.permissions, ['system.maintain'])).toEqual([]);
+	});
+
+	it('source 缺失时按「不是数据库」处理（embedded），宁可多提醒', () => {
+		const view = normalisePolicyView({ ...wire, source: undefined as unknown as string });
+		expect(view.source).toBe('embedded');
+		expect(view.source !== 'database').toBe(true);
+	});
+
+	it('正常响应原样通过，不丢角色也不丢列', () => {
+		const view = normalisePolicyView({
+			source: 'database',
+			warnings: ['受保护权限 system.maintain：理由'],
+			permissions: [
+				{ name: 'log.view', label: '查看协调日志', protected: false, holders: ['logistics'] }
+			],
+			roles: [
+				{
+					value: 'logistics',
+					label: '后勤',
+					level: 10,
+					protected: false,
+					grants: ['log.view']
+				}
+			]
+		});
+		expect(view.roles).toHaveLength(1);
+		expect(view.permissions).toHaveLength(1);
+		expect(view.warnings).toEqual(['受保护权限 system.maintain：理由']);
+		expect(view.roles[0].grants).toEqual(['log.view']);
+		expect(view.permissions[0].holders).toEqual(['logistics']);
 	});
 });

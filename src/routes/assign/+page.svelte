@@ -33,7 +33,7 @@
 	let pendingRevoke = $state<GrantRow | null>(null);
 
 	const columns = [
-		{ key: 'username', label: '用户' },
+		{ key: 'username', label: '账号' },
 		{ key: 'role', label: '角色', width: '8rem' },
 		{ key: 'project_name', label: '项目' },
 		{ key: 'project_code', label: '项目编码', width: '11rem' },
@@ -76,7 +76,7 @@
 				};
 			});
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载授权数据失败');
+			feedback.error(err instanceof Error ? err.message : '授权数据加载失败。');
 		} finally {
 			loading = false;
 		}
@@ -86,16 +86,16 @@
 
 	async function assign() {
 		if (!selectedUser || !selectedProject) {
-			feedback.error('请选择用户和项目');
+			feedback.error('请先选择账号和项目。');
 			return;
 		}
 		busy = true;
 		try {
 			await api.assign(Number(selectedUser), Number(selectedProject));
-			feedback.success('分配成功');
+			feedback.success('授权已新增。');
 			await load();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '分配失败');
+			feedback.error(err instanceof Error ? err.message : '授权新增失败。');
 		} finally {
 			busy = false;
 		}
@@ -103,16 +103,16 @@
 
 	async function revokeSelection() {
 		if (!selectedUser || !selectedProject) {
-			feedback.error('请选择用户和项目');
+			feedback.error('请先选择账号和项目。');
 			return;
 		}
 		busy = true;
 		try {
 			await api.revoke(Number(selectedUser), Number(selectedProject));
-			feedback.success('撤销成功');
+			feedback.success('授权已撤销。');
 			await load();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '撤销失败');
+			feedback.error(err instanceof Error ? err.message : '授权撤销失败。');
 		} finally {
 			busy = false;
 		}
@@ -124,10 +124,10 @@
 		pendingRevoke = null;
 		try {
 			await api.revoke(row.user_id, row.project_id);
-			feedback.success('撤销成功');
+			feedback.success('授权已撤销。');
 			await load();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '撤销失败');
+			feedback.error(err instanceof Error ? err.message : '授权撤销失败。');
 		}
 	}
 
@@ -142,9 +142,9 @@
 		'h-10 w-full rounded-[var(--radius-form)] border border-border bg-bg-surface px-3 text-[13px] text-fg transition-colors hover:border-border-strong focus:border-primary focus:ring-2 focus:ring-primary/15 focus:outline-none disabled:bg-bg-overlay disabled:text-fg-faint';
 </script>
 
-<svelte:head><title>权限分配 - 管理后台</title></svelte:head>
+<svelte:head><title>项目授权 - 管理后台</title></svelte:head>
 
-<PageHeader title="权限分配" description="导播只能看到被授权的项目，管理员默认拥有全部权限。">
+<PageHeader title="项目授权" description="导播仅能访问被授权的项目；管理员默认拥有全部项目。">
 	{#snippet actions()}
 		<Button variant="secondary" icon="refresh" disabled={loading} onclick={() => void load()}>
 			刷新
@@ -153,12 +153,12 @@
 </PageHeader>
 
 <div class="space-y-5">
-	<Panel title="分配用户到项目" description="选择一名用户与一个项目，建立或解除访问授权。">
+	<Panel title="新增项目授权" description="选择账号与项目，建立或解除访问授权。">
 		<div class="grid gap-4 md:grid-cols-[1fr_1fr_auto]">
 			<label class="block">
-				<span class="mb-1.5 block text-[12px] font-medium text-fg">用户</span>
+				<span class="mb-1.5 block text-[12px] font-medium text-fg">账号</span>
 				<select bind:value={selectedUser} class={selectClass}>
-					<option value="">选择用户</option>
+					<option value="">选择账号</option>
 					{#each users as user (user.id)}
 						<option value={String(user.id)}>
 							{user.username}{user.display_name ? ` (${user.display_name})` : ''} — {roleLabel(
@@ -181,21 +181,21 @@
 
 			<div class="flex items-end gap-2">
 				<Button variant="primary" disabled={busy || !canSubmit} onclick={() => void assign()}>
-					分配
+					新增授权
 				</Button>
 				<Button
 					variant="danger-ghost"
 					disabled={busy || !canSubmit}
 					onclick={() => void revokeSelection()}
 				>
-					撤销所选
+					撤销所选授权
 				</Button>
 			</div>
 		</div>
 
 		{#if selectedUserGrants.length > 0}
 			<div class="mt-5 border-t border-border pt-4">
-				<div class="mb-2.5 text-[11.5px] font-medium text-fg-muted">该用户当前已授权项目</div>
+				<div class="mb-2.5 text-[11.5px] font-medium text-fg-muted">该账号当前已授权的项目</div>
 				<div class="flex flex-wrap gap-1.5">
 					{#each selectedUserGrants as grant (grant.project_id)}
 						<Tag text={`${grant.project_name} (${grant.project_code})`} state="success" size="sm" />
@@ -204,7 +204,7 @@
 			</div>
 		{:else if selectedUser}
 			<div class="mt-5 border-t border-border pt-4 text-[11.5px] text-fg-faint">
-				该用户尚未获得任何项目授权。
+				该账号尚未获得任何项目授权。
 			</div>
 		{/if}
 	</Panel>
@@ -242,8 +242,8 @@
 <ConfirmDialog
 	visible={pendingRevoke !== null}
 	title="撤销授权"
-	message="确定撤销「{pendingRevoke?.username ?? ''}」对项目「{pendingRevoke?.project_name ??
-		''}」的访问权限？"
+	message="确认撤销账号「{pendingRevoke?.username ?? ''}」对项目「{pendingRevoke?.project_name ??
+		''}」的访问授权？"
 	confirmText="撤销"
 	danger
 	onconfirm={confirmRevoke}

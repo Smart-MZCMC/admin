@@ -47,7 +47,7 @@
 		idle: '空闲',
 		fetching: '查询更新源',
 		downloading: '下载中',
-		verifying: '校验 sha256',
+		verifying: '校验 sha256 摘要',
 		extracting: '解压可执行文件',
 		replacing: '备份并替换程序',
 		migrating: '执行数据库迁移',
@@ -130,13 +130,13 @@
 					startHealthPoll();
 					return;
 				}
-				feedback.success(`新版本 ${next.result?.version ?? ''} 已下载并校验通过`);
+				feedback.success(`新版本 ${next.result?.version ?? ''} 已下载并校验通过。`);
 				confirmOpen = false;
 				return;
 			}
 			if (next.failed) {
 				stopPolling();
-				feedback.error(next.error || '更新失败');
+				feedback.error(next.error || '更新失败。');
 				return;
 			}
 			pollTimer = setTimeout(() => void pollOnce(), 800);
@@ -145,7 +145,7 @@
 			// 两种都不该立刻判定失败放弃，否则用户会以为更新失败了。
 			if (restarting) return;
 			stopPolling();
-			feedback.error(err instanceof Error ? err.message : '获取更新进度失败');
+			feedback.error(err instanceof Error ? err.message : '更新进度获取失败。');
 		}
 	}
 
@@ -166,14 +166,14 @@
 				await api.health();
 				if (healthTimer) clearTimeout(healthTimer);
 				healthTimer = null;
-				feedback.success('服务已恢复运行');
+				feedback.success('服务已恢复运行。');
 				await load();
 				return;
 			} catch {
 				if (healthTries >= 30) {
 					if (healthTimer) clearTimeout(healthTimer);
 					healthTimer = null;
-					feedback.error('服务 30 次探测都没响应，请检查进程管理器与启动日志');
+					feedback.error('服务连续 30 次探测均无响应，请检查进程管理器与启动日志。');
 					return;
 				}
 			}
@@ -218,10 +218,10 @@
 		try {
 			update = await api.updateStatus();
 			if (update.error) feedback.error(update.error);
-			else if (update.has_update) feedback.success(`发现新版本 ${update.latest_version}`);
-			else feedback.success('已是最新版本');
+			else if (update.has_update) feedback.success(`发现新版本 ${update.latest_version}。`);
+			else feedback.success('当前已是最新版本。');
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '检查更新失败');
+			feedback.error(err instanceof Error ? err.message : '检查更新失败。');
 		} finally {
 			checking = false;
 		}
@@ -248,7 +248,7 @@
 			};
 			void pollOnce();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '启动更新失败');
+			feedback.error(err instanceof Error ? err.message : '更新启动失败。');
 		} finally {
 			applying = false;
 		}
@@ -266,7 +266,7 @@
 
 <PageHeader
 	title="系统设置"
-	description="运行环境与在线更新。此页的操作会影响服务本身，仅超级管理员可见。"
+	description="展示运行环境信息并提供在线更新功能。本页操作会直接影响服务本身，仅超级管理员可见。"
 >
 	{#snippet actions()}
 		<Button variant="secondary" icon="refresh" disabled={loading} onclick={() => void load()}>
@@ -311,7 +311,7 @@
 					<dd class="font-mono text-fg">{info.runtime.go_version} / {info.runtime.platform}</dd>
 				</div>
 				<div class="flex justify-between gap-4">
-					<dt class="text-fg-faint">CPU / 协程</dt>
+					<dt class="text-fg-faint">CPU 核数 / 协程数</dt>
 					<dd class="font-mono text-fg">{info.runtime.num_cpu} / {info.runtime.goroutines}</dd>
 				</div>
 				<div class="flex justify-between gap-4">
@@ -344,7 +344,7 @@
 
 	<Panel
 		title="在线更新"
-		description="从 GitHub Release 拉取后端发布包，校验 sha256 后替换并重启。"
+		description="从 GitHub Release 获取后端发布包，校验 sha256 摘要后替换程序并重启服务。"
 	>
 		{#snippet actions()}
 			<Button variant="secondary" icon="refresh" disabled={checking} onclick={() => void check()}>
@@ -398,8 +398,8 @@
 						</p>
 					{:else}
 						<p class="text-warning-ink">
-							应用后当前进程会退出，需要由 systemd 之类的进程管理器拉起。
-							程序会在替换前自动备份当前版本，迁移失败会回滚。
+							应用后当前进程会退出，需要由 systemd 等进程管理器重新拉起。
+							程序会在替换前自动备份当前版本，数据库迁移失败时将回滚。
 						</p>
 					{/if}
 
@@ -432,7 +432,7 @@
 						下载镜像：{#if update.download_mirror}<span class="font-mono"
 								>{update.download_mirror}</span
 							>{:else}<span class="text-warning-ink"
-								>未配置（直连 GitHub，校园网内可能无法下载）</span
+								>未配置（直接连接 GitHub，校园网内可能无法下载）</span
 							>{/if}
 					</p>
 					<p>
@@ -446,8 +446,8 @@
 							「更新仍然是可信的」。
 						-->
 						<p class="text-warning-ink">
-							注意：校验值与安装包来自同一处，镜像若被篡改即可同时替换两者，完整性校验会一并失效。
-							需要真正的校验请配置 <code class="font-mono">UPDATE_CHECKSUM_URL</code> 指向独立可信源。
+							注意：校验值与安装包来自同一来源，镜像一旦被篡改即可同时替换两者，完整性校验将一并失效。如需可靠的校验，请将
+							<code class="font-mono">UPDATE_CHECKSUM_URL</code> 配置为指向独立可信来源。
 						</p>
 					{/if}
 				</div>
@@ -465,7 +465,7 @@
 			<Panel
 				title="更新进度"
 				description={restarting
-					? '替换已完成，服务正在重启。等待期间客户端会短暂断开，属正常现象。'
+					? '替换已完成，服务正在重启。等待期间客户端会短暂断开，属正常情况。'
 					: progress.message || STAGE_LABELS[progress.stage]}
 			>
 				<div class="space-y-3">
@@ -511,8 +511,8 @@
 					</div>
 
 					{#if progress.failed}
-						<p class="text-[12.5px] text-error-ink">
-							更新失败：{progress.error ?? '未知原因'}
+						<p class="text-[12.5px] text-error-ink" title={progress.error ?? ''}>
+							更新失败，请查看下方的执行日志。
 						</p>
 					{/if}
 
@@ -549,7 +549,7 @@
 	visible={confirmOpen}
 	title="应用更新"
 	message={update?.allow_replace
-		? `确认把后端更新到 ${update.latest_version}？当前进程会退出并由进程管理器重启，期间所有客户端会短暂断开。程序会自动备份旧版本，迁移失败会回滚。`
+		? `确认将后端更新到 ${update.latest_version}？当前进程会退出并由进程管理器重启，期间所有客户端会短暂断开。程序会自动备份旧版本，数据库迁移失败时将回滚。`
 		: `确认下载 ${update?.latest_version}？当前配置不会替换正在运行的程序，只会下载并校验到 update/ 目录。`}
 	confirmText={applying ? '更新中…' : '确认更新'}
 	danger={update?.allow_replace}

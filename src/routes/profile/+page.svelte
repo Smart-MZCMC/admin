@@ -73,9 +73,9 @@
 			});
 			// 邮箱变了就该重新取头像，否则会一直显示旧的那张。
 			avatarFailed = false;
-			feedback.success('个人资料已保存');
+			feedback.success('个人资料已保存。');
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '保存失败');
+			feedback.error(err instanceof Error ? err.message : '保存失败。');
 		} finally {
 			savingProfile = false;
 		}
@@ -106,10 +106,10 @@
 			newPassword = '';
 			confirmPassword = '';
 			confirmOpen = false;
-			feedback.success('密码已修改，其他设备的登录状态已失效');
+			feedback.success('密码已修改，其他设备的登录状态已失效。');
 		} catch (err) {
 			// 当前密码错误时后端返回 400 而不是 401 —— 401 会把用户踢回登录页。
-			feedback.error(err instanceof Error ? err.message : '修改密码失败');
+			feedback.error(err instanceof Error ? err.message : '密码修改失败。');
 		} finally {
 			savingPassword = false;
 		}
@@ -118,7 +118,7 @@
 
 <svelte:head><title>个人中心 - 管理后台</title></svelte:head>
 
-<PageHeader title="个人中心" description="维护你的显示资料、邮箱与登录密码。" />
+<PageHeader title="个人中心" description="维护当前账号的显示资料、邮箱与登录密码。" />
 
 <div class="flex flex-col gap-5">
 	<Panel title="资料">
@@ -162,8 +162,8 @@
 	<Panel title="修改密码">
 		<div class="grid max-w-md gap-4">
 			<p class="text-[12.5px] leading-relaxed text-fg-muted">
-				修改后，<span class="font-medium text-fg">你在其他所有设备上的登录状态会立即失效</span>，
-				需要用新密码重新登录。当前设备会自动续期，不会把你自己踢下线。
+				修改后，<span class="font-medium text-fg">当前账号在其他所有设备上的登录状态将立即失效</span
+				>，需使用新密码重新登录。当前设备的登录状态会自动延续，不会被强制退出。
 			</p>
 			<Field label="当前密码" type="password" bind:value={currentPassword} autocomplete />
 			<Field label="新密码" type="password" bind:value={newPassword} hint="至少 6 位" />
@@ -189,12 +189,11 @@
 				href="https://weavatar.com"
 				target="_blank"
 				rel="noreferrer">WeAvatar</a
-			>
-			，按邮箱匹配。需要真头像的话，请先在 WeAvatar 官网注册、绑定上面这个邮箱并完成验证；没有注册过的邮箱会显示为一个字母头像。
-			这里不能上传头像——本系统不托管头像文件。
+			>，按邮箱匹配。若需显示真实头像，请先在 WeAvatar
+			官网注册，绑定上方填写的邮箱并完成验证；未注册的邮箱将显示为首字母圆形头像。本平台不提供头像上传功能，也不托管头像文件。
 		</p>
 		<p class="mt-2 text-[12px] text-fg-faint">
-			内网无外网时头像可能加载不出来，此时会自动回退为首字母圆圈，不影响使用。
+			内网无法访问外网时，头像可能无法加载，此时会自动回退为首字母圆形头像，不影响使用。
 		</p>
 	</Panel>
 </div>
@@ -202,7 +201,7 @@
 <ConfirmDialog
 	visible={confirmOpen}
 	title="修改密码"
-	message="确认修改密码？其他设备上的登录状态会立即失效。"
+	message="确认修改密码？其他设备上的登录状态将立即失效。"
 	confirmText={savingPassword ? '提交中…' : '确认修改'}
 	danger
 	onconfirm={() => void doChangePassword()}

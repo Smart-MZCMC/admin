@@ -82,9 +82,9 @@
 			view = await api.policy();
 		} catch (err) {
 			if (silent) {
-				feedback.warning('权限矩阵刷新失败，界面上仍是上一次读到的内容');
+				feedback.warning('权限矩阵刷新失败，页面显示的仍是上一次读取的内容。');
 			} else {
-				feedback.error(err instanceof Error ? err.message : '读取权限矩阵失败');
+				feedback.error(err instanceof Error ? err.message : '权限矩阵读取失败。');
 			}
 		} finally {
 			loading = false;
@@ -120,9 +120,13 @@
 	 *
 	 * 别人的行不是 disabled 就能点的——一次只改一个角色，而一个请求里混着
 	 * 合法项与非法项时界面说不清是哪一项被拒。
+	 *
+	 * saving 也要算进去：请求已经发出去了，此时再点勾选只会让用户以为改动进了
+	 * 这次提交（而它并没有），响应回来时整份草稿又被清掉——看上去就是「我明明
+	 * 勾了，它说没改」。
 	 */
 	function isCellDisabled(role: PolicyRoleView, perm: PolicyPermissionView): boolean {
-		return isLockedCell(role, perm) || editingRole !== role.value;
+		return isLockedCell(role, perm) || editingRole !== role.value || saving;
 	}
 
 	function toggle(role: PolicyRoleView, perm: PolicyPermissionView) {
@@ -163,14 +167,14 @@
 			// 重新拉一次：grants / holders / source / warnings 都以刷新后的为准。
 			await load(true);
 			if (result.source !== 'database') {
-				feedback.warning('改动已写进数据库，但要等策略下次重载才会生效');
+				feedback.warning('改动已写入数据库，需等策略下次重新加载后才会生效。');
 			}
 		} catch (err) {
 			// 按 code 分流：受保护不可改 与 「你选的东西过期了」是两回事，
 			// 合成一句话的话用户会刷新一百次也刷不出来。判定在 $lib/rbac-matrix。
 			const failure = policyFailure(
 				err instanceof ApiError ? err.code : '',
-				err instanceof Error ? err.message : '保存失败'
+				err instanceof Error ? err.message : '保存失败。'
 			);
 			feedback.error(failure.message);
 			if (!failure.keepDraft) stopEditing();
@@ -183,9 +187,9 @@
 	/** 悬停说明为什么这一格点不了。规则说给界面，理由说给人。 */
 	function lockedReason(role: PolicyRoleView, perm: PolicyPermissionView): string {
 		if (role.protected && perm.protected)
-			return `「${role.label}」与「${perm.name}」都受保护，不可改`;
-		if (role.protected) return `角色「${role.label}」受保护，这一行的权限不可改`;
-		return `权限「${perm.name}」受保护，不可改`;
+			return `角色「${role.label}」与权限「${perm.name}」均受保护，不可修改`;
+		if (role.protected) return `角色「${role.label}」受保护，该行的权限不可修改`;
+		return `权限「${perm.name}」受保护，不可修改`;
 	}
 
 	/**
@@ -195,7 +199,7 @@
 	 * 唯一一次知情的机会——尤其是「取消了 X」这一半，它比新增更需要被看见。
 	 */
 	function pendingSummary(hasChanges: boolean): string {
-		if (!hasChanges) return '尚无改动，可以直接取消。';
+		if (!hasChanges) return '尚无改动，可直接取消。';
 		return `将 ${describeChange(change.granted, change.revoked)}。`;
 	}
 </script>
@@ -204,7 +208,7 @@
 
 <PageHeader
 	title="角色权限"
-	description="每个角色能拿到哪些权限，在这里改。改动写进策略表并立刻生效，只影响准入判断——角色等级仍只管「能否操作他人」。"
+	description="本页用于设置各角色可获得的权限。改动写入策略表后立即生效，仅影响访问准入判断；角色等级仍只用于判断「能否操作他人」。"
 >
 	{#snippet actions()}
 		{#if view}
@@ -232,10 +236,10 @@
 		>
 			<Icon name="alert" size={16} class="mt-px shrink-0 text-warning-ink" />
 			<p class="text-[12.5px] leading-relaxed text-warning-ink">
-				当前生效的是<b>程序内嵌的那份策略</b>（go:embed 的
-				policy.csv），不是数据库里的。这一屏显示的勾选就是文件里的版本；
-				<b>你在这里做的改动会写进数据库，但要等策略下次重载才生效</b
-				>——在那之前准入判断用的仍然是文件那一版。
+				当前生效的是<b>随程序打包的策略文件 policy.csv</b
+				>，而不是数据库中的策略。本页显示的勾选状态即文件中的版本；
+				<b>在此所做的改动会写入数据库，但需等策略下次重新加载后才会生效</b
+				>——在此之前，访问准入判断仍按文件中的版本执行。
 			</p>
 		</div>
 	{/if}
@@ -251,7 +255,7 @@
 		>
 			<Icon name="alert" size={16} class="mt-px shrink-0 text-fg-faint" />
 			<div class="min-w-0 space-y-1">
-				<p class="text-[12.5px] font-medium text-fg">后端给出的须知</p>
+				<p class="text-[12.5px] font-medium text-fg">服务端给出的须知</p>
 				<ul class="space-y-1">
 					{#each notices as notice, i (i)}
 						<li class="text-[12px] leading-relaxed text-fg-muted">{notice}</li>
@@ -266,7 +270,7 @@
 	{:else if view}
 		<Panel
 			title="权限矩阵"
-			description="行是角色（按权限从高到低），列是权限。默认只读；点某一行的「编辑」才允许改，一次只改一个角色，保存时提交该角色的完整集合。"
+			description="行表示角色（按权限从高到低排列），列表示权限。默认为只读；点击某一行的「编辑」后才可修改，每次只能修改一个角色，保存时提交该角色的完整权限集合。"
 			bodyClass="p-0"
 		>
 			<div class="overflow-x-auto">
@@ -296,8 +300,15 @@
 									</span>
 								</th>
 							{/each}
+							<!--
+								操作列必须 sticky 到右边。矩阵有 12 列，在 1280 宽（笔记本）
+								和 1920 宽（内容区被 max-w-[1400px] 限死）下表格都比可视
+								区域宽 100～200px，滚不动的用户根本看不到「编辑」按钮——
+								而那是这一页唯一的主操作。与左边的角色列同一套处理。
+								背景必须给实色：粘住的那格不能透出底下的列。
+							-->
 							<th
-								class="w-[15rem] border-b border-l border-border px-3 py-2.5 text-left text-[10.5px] font-semibold tracking-[0.06em] whitespace-nowrap text-fg-muted uppercase"
+								class="sticky right-0 z-10 w-[15rem] border-b border-l border-border bg-bg-overlay px-3 py-2.5 text-left text-[10.5px] font-semibold tracking-[0.06em] whitespace-nowrap text-fg-muted uppercase"
 							>
 								操作
 							</th>
@@ -340,11 +351,27 @@
 										/>
 									</td>
 								{/each}
-								<td class="border-l border-border px-3 py-2">
+								<!--
+									与表头那一格同一套：编辑中的行整条都要跟着变色，
+									否则粘住的这一格会与左边那一格对不上，像两行。
+								-->
+								<td
+									class="sticky right-0 z-10 border-l border-border bg-bg-surface px-3 py-2 {editingRole ===
+									role.value
+										? 'bg-bg-highlight'
+										: ''}"
+								>
+									<!--
+									按钮组必须 nowrap：这一格是 sticky 的，宽度由内容决定，
+									一旦 flex-wrap 允许换行，「全选可改项 清空 保存 取消」四个
+									按钮就会竖着排成四行，把正在编辑的那一行撑成别人的四倍高，
+									一眼看去像是渲染坏了。保持 nowrap 时这一列会被撑到约 300px，
+									表格因此更宽——而两侧都 sticky，横向滚动不影响按钮可达。
+								-->
 									{#if editingRole === role.value}
-										<div class="flex flex-wrap items-center gap-1.5">
+										<div class="flex flex-nowrap items-center gap-1.5 whitespace-nowrap">
 											<Button size="sm" variant="ghost" disabled={saving} onclick={selectEditable}
-												>全选可改项</Button
+												>全选可修改项</Button
 											>
 											<Button size="sm" variant="ghost" disabled={saving} onclick={clearAll}
 												>清空</Button
@@ -369,10 +396,10 @@
 											icon="edit"
 											disabled={rowLocked || editingRole !== null}
 											title={rowLocked
-												? `角色「${role.label}」受保护，整行不可改`
+												? `角色「${role.label}」受保护，整行不可修改`
 												: editingRole
-													? '一次只改一个角色，先保存或取消当前这一行'
-													: '编辑这一行的权限'}
+													? '每次只能修改一个角色，请先保存或取消当前这一行'
+													: '编辑该行的权限'}
 											onclick={() => startEditing(role)}
 										>
 											编辑
@@ -389,7 +416,7 @@
 				{#if editing}
 					正在编辑 <b class="text-fg">{editing.label}</b>：{pendingSummary(dirty)}
 				{:else}
-					共 {rows.length} 个角色 × {columns.length} 项权限。带「受保护」标记的格子不可改，理由见上方的须知。
+					共 {rows.length} 个角色 × {columns.length} 项权限。标记为「受保护」的格子不可修改，原因见上方须知。
 				{/if}
 			</div>
 		</Panel>
@@ -397,8 +424,8 @@
 		<Panel title="读取权限矩阵失败">
 			<div class="space-y-3 text-[12.5px] leading-relaxed text-fg-muted">
 				<p>
-					没有读到权限矩阵，因此这一页什么都不显示——宁可空着，也不能拿一份来路不明的策略去改权限。
-					常见原因是策略表读不出来（后端会返回 policy_unavailable），稍后重试即可。
+					未能读取权限矩阵，因此本页不显示任何内容——宁可留空，也不能依据来源不明的策略修改权限。
+					常见原因是策略表无法读取（服务端会返回 policy_unavailable），稍后重试即可。
 				</p>
 				<Button variant="secondary" icon="refresh" onclick={() => void load()}>重试</Button>
 			</div>

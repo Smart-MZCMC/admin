@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { fly } from 'svelte/transition';
+	import { toastTransition, watchReducedMotion } from '$lib/overlay-motion';
 	import { feedback } from '$lib/stores/feedback.svelte';
 	import Icon from './Icon.svelte';
 	import type { IconName } from './icons';
@@ -12,6 +14,14 @@
 
 	// Keep at most a few notices on screen at once.
 	const visible = $derived(feedback.items.slice(-3));
+
+	// reduced-motion 只能在 JS 里判断：svelte/transition 写的是 JS 驱动的内联样式，
+	// app.css 里的 @media (prefers-reduced-motion: reduce) 对它无效。
+	let reduced = $state(false);
+	$effect(() => watchReducedMotion((value) => (reduced = value)));
+
+	// 提示条比弹窗轻：120ms、只位移不缩放。缩放/回弹会让「路过的信息」抢注意力。
+	let motion = $derived(toastTransition(reduced));
 </script>
 
 <div
@@ -19,7 +29,8 @@
 >
 	{#each visible as item (item.id)}
 		<div
-			class="toast pointer-events-auto flex items-start gap-2.5 overflow-hidden rounded-[var(--radius-box)] border border-border bg-bg-surface p-3 pl-3.5 shadow-popover"
+			transition:fly={motion}
+			class="pointer-events-auto flex items-start gap-2.5 overflow-hidden rounded-[var(--radius-box)] border border-border bg-bg-surface p-3 pl-3.5 shadow-popover"
 		>
 			<span
 				class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full {meta[
@@ -40,26 +51,3 @@
 		</div>
 	{/each}
 </div>
-
-<style>
-	.toast {
-		animation: toast-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
-	}
-
-	@keyframes toast-in {
-		from {
-			opacity: 0;
-			transform: translateY(-8px) scale(0.98);
-		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.toast {
-			animation: none;
-		}
-	}
-</style>

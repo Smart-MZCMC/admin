@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { fade, fly } from 'svelte/transition';
+	import { dialogTransitions, watchReducedMotion } from '$lib/overlay-motion';
 	import Button from './Button.svelte';
 	import Icon from './Icon.svelte';
 
@@ -29,6 +31,18 @@
 
 	let panel = $state<HTMLDivElement | null>(null);
 
+	// reduced-motion 只能在 JS 里判断：svelte/transition 写的是 JS 驱动的内联样式，
+	// app.css 里的 @media (prefers-reduced-motion: reduce) 对它无效。
+	let reduced = $state(false);
+	$effect(() => watchReducedMotion((value) => (reduced = value)));
+
+	let motion = $derived(dialogTransitions(reduced));
+
+	// 退场动画播完之前面板还在 DOM 里（outro 结束才移除），这 160ms 里
+	// 面板上的按钮照样能点，「确定」会被点第二次、提交两次。
+	// 这里不用自己处理：Svelte 5 的过渡在 outro 开始时会给带 transition 的元素
+	// 自动打上 inert（进场时还原），遮罩和面板都带 transition，
+	// 所以整块遮罩在这段时间里都点不动。
 	$effect(() => {
 		if (!visible) return;
 		function onKeydown(event: KeyboardEvent) {
@@ -42,6 +56,7 @@
 
 {#if visible}
 	<div
+		transition:fade={motion.backdrop}
 		class="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-[2px]"
 		role="presentation"
 		onclick={(event) => {
@@ -50,6 +65,7 @@
 	>
 		<div
 			bind:this={panel}
+			transition:fly={motion.panel}
 			role="dialog"
 			aria-modal="true"
 			aria-label={title}

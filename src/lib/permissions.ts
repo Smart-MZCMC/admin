@@ -15,6 +15,7 @@
  * 真正的判定始终在后端（middleware.RequirePermission），这里只是不给无意义的
  * 入口。所以即使这一层写错，最坏结果也只是「按钮多点一下换来一个 403」。
  */
+import { base as appBase } from '$app/paths';
 import { hasPermission, type Permission } from '$lib/rbac';
 
 /** 页面级门槛。缺省表示「登录即可」。 */
@@ -65,15 +66,57 @@ export const PAGE_PERMISSIONS: PagePermission[] = [
 	{ path: '/profile', perm: undefined }
 ];
 
-/** 路径所需的权限；返回 undefined 表示「登录即可」。 */
-export function permissionFor(path: string): Permission | undefined {
-	const normalised = path.replace(/\/+$/, '') || '/';
+/**
+ * 去掉部署基路径前缀，并把尾部斜杠归一。
+ *
+ * 为什么必须去：`svelte.config.js` 里 `paths.base = '/admin'`，所以生产环境下
+ * `page.url.pathname` 拿到的是 `/admin/settings`，而上面这张表存的是 `/settings`。
+ * 直接字符串比较永远匹配不上 → `permissionFor` 恒返回 undefined → 路由守卫形同
+ * 虚设，任何登录用户直接输地址就能打开本该拦住的页面。侧边栏那层是好的，因为它
+ * 传的是导航项自己的短路径 `/settings`——于是正好是本文件开头警告的
+ * 「菜单里没有、但地址栏能进」。
+ *
+ * 它能长期存活是因为失效时页面照样渲染：数据请求被后端 403 挡掉，管理员看到的只是
+ * 「页面报了个错」，不像「权限没拦住」，所以没人往门槛表上想。
+ *
+ * 边界检查用 `p === base || p.startsWith(base + '/')` 而不是裸 startsWith：
+ * 否则 base 为 `/admin` 时，`/administrator` 会被砍成 `istrator`。
+ */
+export function stripBase(pathname: string, base: string): string {
+	const trimmed = (pathname || '').replace(/\/+$/, '');
+	if (!trimmed) return '/';
+	if (!base || base === '/') return trimmed;
+	if (trimmed === base) return '/';
+	if (trimmed.startsWith(`${base}/`)) {
+		const rest = trimmed.slice(base.length).replace(/\/+$/, '');
+		return rest || '/';
+	}
+	return trimmed;
+}
+
+/**
+ * 路径所需的权限；返回 undefined 表示「登录即可」。
+ *
+ * `base` 默认取自 `$app/paths`，也就是构建配置里的 `paths.base`。**刻意不给它一个
+ * 空字符串默认值**：那等于允许调用点不表态，而「忘了传 base」正是这个守卫失效的
+ * 原因——生产环境下 pathname 带 `/admin` 前缀，门槛表不带，比较永远不成立，
+ * `permissionFor` 恒返回 undefined，于是任何登录用户直接输地址就能打开本该拦住的
+ * 页面，而侧边栏那层是好的（它传的是导航项自己的短路径）。
+ *
+ * 第二个参数仅供测试用来显式覆盖 base，不必在业务代码里传。
+ */
+export function permissionFor(path: string, base: string = appBase): Permission | undefined {
+	const normalised = stripBase(path, base);
 	return PAGE_PERMISSIONS.find((p) => p.path === normalised)?.perm;
 }
 
 /** 给定的权限清单够不够得着这个路径。 */
-export function canVisit(granted: readonly string[] | null | undefined, path: string): boolean {
-	const perm = permissionFor(path);
+export function canVisit(
+	granted: readonly string[] | null | undefined,
+	path: string,
+	base: string = appBase
+): boolean {
+	const perm = permissionFor(path, base);
 	if (!perm) return true;
 	return hasPermission(granted, perm);
 }

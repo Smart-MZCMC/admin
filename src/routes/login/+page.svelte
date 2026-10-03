@@ -4,7 +4,7 @@
 	import { resolve } from '$app/paths';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
-	import { api } from '$lib/api/client';
+	import { api, ApiError } from '$lib/api/client';
 	import Icon from '$lib/components/Icon.svelte';
 
 	let username = $state('');
@@ -12,6 +12,14 @@
 	let displayName = $state('');
 	let submitting = $state(false);
 	let error = $state('');
+	/**
+	 * 失败时那条不可见的原始信息，只给 title 用。
+	 *
+	 * 正文已经是一句人能读懂的话（「登录状态已失效，请重新登录。」），把
+	 * `HTTP 401` 之类的东西并排印出来只会让人以为系统坏了。悬停时能看到
+	 * 原文，报障时截图就够。
+	 */
+	let errorDetail = $state('');
 
 	/**
 	 * 系统是否还没有任何账号。
@@ -47,21 +55,24 @@
 	async function submit() {
 		if (submitting) return;
 		if (!username.trim() || !password) {
-			error = '请输入用户名和密码';
+			error = '请输入用户名和密码。';
+			errorDetail = '';
 			return;
 		}
 
 		submitting = true;
 		error = '';
+		errorDetail = '';
 		try {
 			if (needsBootstrap) await bootstrap();
 			else {
 				const user = await auth.login(username.trim(), password);
-				feedback.success(`欢迎回来，${user.display_name || user.username}`);
+				feedback.success(`欢迎回来，${user.display_name || user.username}。`);
 			}
 			await goto(resolve('/'), { replaceState: true });
 		} catch (err) {
-			error = err instanceof Error ? err.message : needsBootstrap ? '创建失败' : '登录失败';
+			error = err instanceof Error ? err.message : needsBootstrap ? '创建失败。' : '登录失败。';
+			errorDetail = err instanceof ApiError ? err.detail : '';
 		} finally {
 			submitting = false;
 		}
@@ -81,7 +92,7 @@
 		});
 		// 再走一次登录拿令牌——注册接口不返回 token。
 		const user = await auth.login(username.trim(), password);
-		feedback.success(`管理员 ${user.display_name || user.username} 创建成功`);
+		feedback.success(`管理员账号 ${user.display_name || user.username} 已创建。`);
 	}
 
 	const inputClass =
@@ -119,26 +130,26 @@
 
 		<div class="relative">
 			<h2 class="max-w-[16em] text-[30px] leading-[1.28] font-semibold tracking-[-0.02em]">
-				导播预判、解说同步、包装联动，<br />一条链路全部留痕。
+				集中管理导播、解说与包装各端的协作与记录。
 			</h2>
 			<ul class="mt-9 space-y-3.5 text-[13px] text-white/80">
 				<li class="flex items-center gap-2.5">
 					<span class="flex h-5 w-5 items-center justify-center rounded-full bg-white/15">
 						<Icon name="check" size={12} strokeWidth={2.2} />
 					</span>
-					控制权互斥与心跳释放，避免双导播误切
+					控制权互斥与心跳释放，避免多名导播同时切台
 				</li>
 				<li class="flex items-center gap-2.5">
 					<span class="flex h-5 w-5 items-center justify-center rounded-full bg-white/15">
 						<Icon name="check" size={12} strokeWidth={2.2} />
 					</span>
-					下一项推送与确认已切，解说提前进入状态
+					下一环节预告与切台确认，供解说提前准备
 				</li>
 				<li class="flex items-center gap-2.5">
 					<span class="flex h-5 w-5 items-center justify-center rounded-full bg-white/15">
 						<Icon name="check" size={12} strokeWidth={2.2} />
 					</span>
-					完整日志与插件归档，赛后直接复盘
+					完整日志与插件归档，便于赛后复盘
 				</li>
 			</ul>
 		</div>
@@ -170,9 +181,7 @@
 					class="mb-5 flex items-start gap-2.5 rounded-[var(--radius-form)] border border-warning-line bg-warning-soft px-3 py-2.5 text-[12.5px] leading-relaxed text-warning-ink"
 				>
 					<Icon name="alert" size={15} class="mt-px shrink-0" />
-					<span>
-						系统尚未初始化，<b>还没有任何账号</b>。下面创建的第一个账号即为管理员。
-					</span>
+					<span> 系统尚未初始化，当前没有任何账号。下方创建的账号即为第一个管理员账号。 </span>
 				</div>
 			{/if}
 
@@ -181,9 +190,9 @@
 			</h1>
 			<p class="mt-1.5 text-[13px] text-fg-muted">
 				{#if needsBootstrap}
-					这是全新部署，创建完成后该入口会自动关闭。
+					系统为全新部署，创建完成后该入口将自动关闭。
 				{:else}
-					使用管理员或导播账号继续。
+					请使用管理员或导播账号登录。
 				{/if}
 			</p>
 
@@ -205,7 +214,7 @@
 						<input
 							type="text"
 							bind:value={username}
-							placeholder={needsBootstrap ? '建议用 admin' : '请输入用户名'}
+							placeholder={needsBootstrap ? '建议填写 admin' : '请输入用户名'}
 							autocomplete="username"
 							disabled={submitting}
 							class={inputClass}
@@ -258,6 +267,7 @@
 				{#if error}
 					<div
 						class="flex items-start gap-2 rounded-[var(--radius-form)] border border-error-line bg-error-soft px-3 py-2.5 text-[12.5px] text-error-ink"
+						title={errorDetail}
 					>
 						<Icon name="alert" size={15} class="mt-px shrink-0" />
 						<span>{error}</span>
@@ -272,7 +282,7 @@
 					{#if submitting}
 						<span class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
 						></span>
-						{needsBootstrap ? '创建中...' : '登录中...'}
+						{needsBootstrap ? '创建中…' : '登录中…'}
 					{:else}
 						{needsBootstrap ? '创建并进入后台' : '登录'}
 					{/if}
@@ -281,10 +291,10 @@
 
 			<p class="mt-8 text-[11.5px] leading-relaxed text-fg-faint">
 				{#if needsBootstrap}
-					创建后请尽快在「用户管理」中为导播分配账号，并确认服务器端口不对公网开放
-					——初始化完成前，创建管理员的接口是公开的。
+					创建后请尽快在「用户管理」中为导播分配账号，并确认服务器端口未对公网开放
+					——初始化完成之前，创建管理员的接口是公开的。
 				{:else}
-					账号由系统管理员在「用户管理」中创建。忘记密码请直接在服务器上重新初始化管理员账号。
+					账号由系统管理员在「用户管理」中创建。如忘记密码，需在服务器上重新初始化管理员账号。
 				{/if}
 			</p>
 

@@ -66,21 +66,21 @@
 				<div class="flex items-start gap-2.5">
 					<Icon name="alert" size={16} class="mt-px shrink-0 text-warning" />
 					<p>
-						当前账号（{auth.user?.display_name || auth.user?.username || '未知'}
-						{auth.user?.role ? `· ${roleLabel(auth.user.role)}` : ''}）没有
+						当前账号（{auth.user?.display_name || auth.user?.username || '未命名账号'}
+						{auth.user?.role ? `· ${roleLabel(auth.user.role)}` : ''}）不具备
 						<b>{requiredPerm ? permissionLabel(requiredPerm) : ''}</b>
-						（{requiredPerm ?? ''}）这项权限，无法打开这个页面。
+						这项权限（权限名：{requiredPerm ?? ''}），无法打开本页面。
 					</p>
 				</div>
 				<p>
-					侧边栏里已经按权限藏掉了对应入口，这里再挡一次是为了防止别人直接把地址发过来。
-					需要这个页面的权限请联系管理员。
+					侧边栏已按权限隐藏对应入口，此处再次校验用于阻止直接输入地址访问。
+					如需访问该页面，请联系系统管理员开通权限。
 				</p>
 				<a
 					href={resolve('/')}
 					class="inline-flex h-9 w-fit items-center rounded-[var(--radius-form)] bg-primary px-4 text-[12.5px] font-semibold text-white no-underline transition-colors hover:bg-primary-700"
 				>
-					返回总览
+					返回总览页
 				</a>
 			</div>
 		</Panel>

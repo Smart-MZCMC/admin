@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PAGE_PERMISSIONS, canVisit, permissionFor } from './permissions';
+import { PAGE_PERMISSIONS, canVisit, permissionFor, stripBase } from './permissions';
 import { PERMISSIONS } from './rbac';
 
 /**
@@ -119,5 +119,78 @@ describe('canVisit', () => {
 
 	it('未知路径不设门槛（登录即可，由页面自己处理 404）', () => {
 		expect(permissionFor('/nowhere')).toBeUndefined();
+	});
+});
+
+describe('stripBase', () => {
+	// 这条规则防的是「路由守卫静默失效」。生产环境 paths.base='/admin'，
+	// page.url.pathname 拿到的是 '/admin/settings'，而门槛表存的是 '/settings'，
+	// 不去掉前缀就永远匹配不上——守卫恒返回 undefined，任何登录用户直接输地址
+	// 就能打开本该拦住的页面。它长期没被发现，是因为失效时页面照样渲染，
+	// 只是数据请求被后端 403 挡掉，看起来像「页面有点问题」。
+
+	it('去掉 base 前缀后与门槛表对得上', () => {
+		expect(stripBase('/admin/settings', '/admin')).toBe('/settings');
+		expect(stripBase('/admin/rbac', '/admin')).toBe('/rbac');
+		expect(stripBase('/admin', '/admin')).toBe('/');
+		expect(permissionFor('/admin/settings', '/admin')).toBe('system.maintain');
+		expect(permissionFor('/admin/rbac', '/admin')).toBe('system.maintain');
+	});
+
+	it('尾部斜杠两种写法都归一到同一条目', () => {
+		expect(stripBase('/admin/settings/', '/admin')).toBe('/settings');
+		expect(stripBase('/admin/settings', '/admin')).toBe('/settings');
+		expect(permissionFor('/admin/users/', '/admin')).toBe('user.view');
+	});
+
+	it('不带 base 时原样归一，短路径照旧可用', () => {
+		expect(stripBase('/settings', '')).toBe('/settings');
+		expect(permissionFor('/settings')).toBe('system.maintain');
+		expect(permissionFor('/settings', '')).toBe('system.maintain');
+	});
+
+	it('边界检查：不能把 /administrator 砍成 istrator', () => {
+		expect(stripBase('/administrator', '/admin')).toBe('/administrator');
+		expect(stripBase('/adminfoo/settings', '/admin')).toBe('/adminfoo/settings');
+		expect(permissionFor('/administrator', '/admin')).toBeUndefined();
+	});
+
+	it('base 为 / 或空时不做任何裁剪', () => {
+		expect(stripBase('/settings', '/')).toBe('/settings');
+		expect(stripBase('/settings', '')).toBe('/settings');
+	});
+
+	it('带 base 时守卫真的会拦住无权限账号', () => {
+		// leader 持有 6 项权限，不含 system.maintain。
+		const leader = [
+			'log.view',
+			'project.view',
+			'user.view',
+			'log.export',
+			'interview.manage',
+			'project.member'
+		];
+		expect(canVisit(leader, '/admin/settings', '/admin')).toBe(false);
+		expect(canVisit(leader, '/admin/system', '/admin')).toBe(false);
+		expect(canVisit(leader, '/admin/rbac', '/admin')).toBe(false);
+	});
+
+	it('默认值就是构建配置的 base，所以调用点不传也不会漏判', () => {
+		// 这条是本次那个漏洞的回归见证：调用点不传 base 时曾经恒返回「无门槛」。
+		// 现在 base 默认取自 $app/paths，业务代码里**不需要**传它；
+		// 显式传 '' 等于手动关掉前缀处理，那是测试专用的手法。
+		const leader = ['log.view', 'project.view', 'user.view'];
+		expect(canVisit(leader, '/admin/settings')).toBe(false);
+		expect(canVisit(leader, '/admin/settings', '')).toBe(true);
+	});
+
+	it('带 base 时有权限账号仍然进得去', () => {
+		expect(canVisit(['system.maintain'], '/admin/settings', '/admin')).toBe(true);
+		expect(canVisit(['user.view'], '/admin/users', '/admin')).toBe(true);
+	});
+
+	it('登录即可的页面在带 base 时不受影响', () => {
+		expect(canVisit([], '/admin/profile', '/admin')).toBe(true);
+		expect(canVisit([], '/admin/plugins', '/admin')).toBe(true);
 	});
 });

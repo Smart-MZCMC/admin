@@ -86,6 +86,25 @@
 }
 
 /*
+ * 动效基准。集中放在这里而不是各组件各写各的：全站只应有一套时间尺度，
+ * 否则「面板怎么出现的」和「数字怎么变的」会各动各的，看起来像两个产品。
+ * 120-200ms 是上限——后台是长时间盯着看的界面，慢动作只会让人觉得卡。
+ *
+ * 用裸 :root 而不是 @theme：这些不是 Tailwind 的颜色/间距 token，没有对应的
+ * 工具类，放进 @theme 会被当成「没人用的主题变量」而不一定落到产物里，
+ * var() 取不到就会静默失效。
+ */
+:root {
+	--motion-fast: 140ms;
+	--motion-base: 180ms;
+	--motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+	/* 值变化的高亮要比入场长一点，否则一瞥之间根本看不到发生过什么。 */
+	--motion-flash: 900ms;
+	/* 自动刷新的呼吸点。它在页面上常驻，周期必须短到不引人注意。 */
+	--motion-breathe: 1800ms;
+}
+
+/*
  * Dark mode follows the OS appearance setting through `prefers-color-scheme`
  * alone: no JS, no stored preference, so there is no flash on first paint and
  * switching the system theme re-paints instantly. Deliberately unlayered so it
@@ -178,5 +197,93 @@ textarea:focus-visible {
 		scroll-behavior: auto !important;
 		transition-duration: 0.01ms !important;
 		animation-duration: 0.01ms !important;
+	}
+	/*
+	 * 上面那条只压时长，压不掉迭代次数：`animation: breathe 1800ms infinite`
+	 * 会变成每 0.01ms 重播一轮的常驻动画，既不生效又一直占着合成线程。
+	 * 所以这几条必须显式置 none，不能指望上面那条兜底。
+	 */
+	.enter-panel,
+	.enter-stagger > *,
+	.value-flash,
+	.live-breathe {
+		animation: none !important;
+	}
+}
+
+/*
+ * 动效工具类。放在 components 层是为了让 Tailwind 工具类仍能覆盖它们
+ * （例如临时关掉某个动画），而不会被工具层的规则反向压住。
+ */
+@layer components {
+	/* 面板与卡片首次出现：轻微淡入加一点位移。只在挂载时跑一次。 */
+	.enter-panel {
+		animation: enter-rise var(--motion-base) var(--motion-ease) both;
+	}
+
+	/*
+	 * 依次入场。延迟封顶 160ms：再多就变成「页面在loading」的错觉，
+	 * 而这四块内容是同时到齐的。
+	 */
+	.enter-stagger > * {
+		animation: enter-rise var(--motion-base) var(--motion-ease) both;
+	}
+	.enter-stagger > *:nth-child(2) {
+		animation-delay: 40ms;
+	}
+	.enter-stagger > *:nth-child(3) {
+		animation-delay: 80ms;
+	}
+	.enter-stagger > *:nth-child(4) {
+		animation-delay: 120ms;
+	}
+	.enter-stagger > *:nth-child(n + 5) {
+		animation-delay: 160ms;
+	}
+
+	/*
+	 * 值确实变了时的一次性底色。元素由 {#key} 重建，所以同一个类被重复加上时
+	 * 动画一定会重播；而没变时这个类根本不会被写上去（见 live-metrics 的单测）。
+	 */
+	.value-flash {
+		animation: value-flash var(--motion-flash) ease-out both;
+		border-radius: 3px;
+	}
+
+	/* 自动刷新进行中的呼吸点。 */
+	.live-breathe {
+		animation: breathe var(--motion-breathe) ease-in-out infinite;
+	}
+}
+
+@keyframes enter-rise {
+	from {
+		opacity: 0;
+		transform: translateY(5px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@keyframes value-flash {
+	from {
+		background-color: var(--color-info-soft);
+	}
+	to {
+		background-color: transparent;
+	}
+}
+
+@keyframes breathe {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.4;
+		transform: scale(0.8);
 	}
 }

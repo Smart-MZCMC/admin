@@ -15,7 +15,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { api } from '$lib/api/client';
+	import { api, ApiError } from '$lib/api/client';
 	import { auth } from '$lib/stores/auth.svelte';
 	import { feedback } from '$lib/stores/feedback.svelte';
 	import { setup } from '$lib/stores/setup.svelte';
@@ -42,6 +42,13 @@
 	let submitting = $state(false);
 	let entering = $state(false);
 	let error = $state('');
+	/**
+	 * 失败时那条不可见的原始信息，只给 title 用。
+	 *
+	 * 与登录页同一个理由：正文写的是「初始化失败，请查看后端服务日志。」，
+	 * 而 `HTTP 500` 或 fetch 的英文异常名对现场人员没有意义，报障时才需要。
+	 */
+	let errorDetail = $state('');
 	let loadError = $state('');
 	let result = $state<SetupApplyResult | null>(null);
 
@@ -52,7 +59,7 @@
 		loading = false;
 
 		if (!snapshot) {
-			loadError = '读不到后端状态。请确认后端已启动，并且本页面与后端同源。';
+			loadError = '无法读取服务端状态。请确认后端已启动，且本页面与后端同源。';
 			return;
 		}
 		if (!snapshot.needs_setup) {
@@ -101,10 +108,10 @@
 
 	const hostHint = $derived(
 		appHost === '0.0.0.0'
-			? '监听全部网卡，局域网内的导播端、解说端、采访端都能连上。'
+			? '监听全部网卡，局域网内的导播端、解说端与采访端均可连接。'
 			: appHost === '127.0.0.1'
-				? '只有本机能访问，其他机器连不上。仅建议先在部署机上试跑。'
-				: `只在 ${appHost} 上监听。`
+				? '仅本机可访问，其他机器无法连接。建议先在部署机上试运行。'
+				: `仅在 ${appHost} 上监听。`
 	);
 
 	/**
@@ -141,6 +148,7 @@
 		}
 
 		error = '';
+		errorDetail = '';
 		submitting = true;
 		try {
 			result = await api.setupApply({
@@ -155,9 +163,10 @@
 			});
 			// 让布局知道初始化已经结束，别再把人送回这个页面。
 			setup.markDone();
-			feedback.success('初始化完成');
+			feedback.success('初始化完成。');
 		} catch (err) {
-			error = err instanceof Error ? err.message : '初始化失败，请查看后端日志';
+			error = err instanceof Error ? err.message : '初始化失败，请查看后端服务日志。';
+			errorDetail = err instanceof ApiError ? err.detail : '';
 		} finally {
 			submitting = false;
 		}
@@ -173,7 +182,7 @@
 		} catch (err) {
 			// 登录失败不代表初始化失败（比如重启后令牌密钥变了），
 			// 退回登录页让人手工登即可。
-			feedback.error(err instanceof Error ? err.message : '自动登录失败，请手动登录');
+			feedback.error(err instanceof Error ? err.message : '自动登录失败，请手动登录。');
 			entering = false;
 		}
 	}
@@ -284,7 +293,7 @@
 								<Icon name="alert" size={15} class="mt-px shrink-0" />
 								<span>
 									监听地址或端口有变动，需要<b>重启后端服务</b
-									>才会生效。重启前请先按下方按钮进入后台， 把导播账号与项目建好。
+									>后才会生效。重启前请先通过下方按钮进入后台，建立导播账号与项目。
 								</span>
 							</div>
 						{/if}
@@ -306,9 +315,7 @@
 			<!-- 直接打开这个地址但系统早就初始化好了：不让人对着表单空填一遍。 -->
 			<Panel title="系统已完成初始化">
 				<div class="space-y-4 text-[12.5px] leading-relaxed text-fg-muted">
-					<p>
-						当前数据库已经可用，初始化向导不再放行。如果这是刚刚完成的初始化，请直接登录管理后台。
-					</p>
+					<p>当前数据库已可用，初始化向导不再开放。如刚刚完成初始化，请直接登录管理后台。</p>
 					<a
 						href={resolve('/login')}
 						class="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-form)] bg-primary px-4 text-[12.5px] font-semibold text-white transition-colors hover:bg-primary-700"
@@ -325,8 +332,9 @@
 				>
 					<Icon name="alert" size={15} class="mt-px shrink-0" />
 					<span>
-						检测到<b>数据库尚未创建</b>，系统处于初始化模式：除了本页，其他接口暂时不可用。
-						填完下面的内容即可完成初始化，无需手工编辑 .env 或敲命令行。
+						检测到<b>数据库尚未创建</b
+						>，系统处于初始化模式：除本页外，其他接口暂不可用。填写以下内容即可完成初始化，无需手工编辑
+						.env 文件或执行命令行操作。
 					</span>
 				</div>
 
@@ -337,7 +345,10 @@
 					}}
 					class="space-y-5"
 				>
-					<Panel title="系统信息" description="会写入后端 .env，重启后仍需保持一致。">
+					<Panel
+						title="系统信息"
+						description="以下配置将写入服务端 .env 文件，重启后仍需保持一致。"
+					>
 						<div class="space-y-4">
 							<Field
 								label="系统名称"
@@ -350,7 +361,7 @@
 								bind:value={appUrl}
 								required
 								placeholder="http://192.168.1.10:3000"
-								hint="各端（导播端 / 解说端 / 采访端）都从这里取服务器地址。局域网部署填内网 IP；走了反向代理就填域名。"
+								hint="导播端、解说端与采访端均从此处获取服务器地址。局域网部署时填写内网 IP；使用反向代理时填写域名。"
 							/>
 
 							<div class="grid gap-4 sm:grid-cols-2">
@@ -381,7 +392,7 @@
 						</div>
 					</Panel>
 
-					<Panel title="数据库" description="初始化时会自动建库、建表并跑完所有迁移。">
+					<Panel title="数据库" description="初始化时会自动创建数据库与数据表，并执行全部迁移。">
 						<div class="space-y-2 text-[12.5px] leading-relaxed">
 							<div class="flex flex-wrap items-center gap-2">
 								<span
@@ -390,19 +401,19 @@
 									{status.database.connection} · {status.database.path}
 								</span>
 								{#if status.database.missing_at_startup}
-									<span class="text-fg-faint">启动时不存在，将在初始化时创建</span>
+									<span class="text-fg-faint">启动时不存在，将在初始化时创建。</span>
 								{/if}
 							</div>
 							<p class="text-fg-faint">
-								SQLite 单文件数据库，随发布包目录一起备份即可。路径可在 .env 的
-								<code>DB_DATABASE</code> 里修改（改完需重启）。
+								SQLite 为单文件数据库，随发布包目录一并备份即可。路径可在 .env 的
+								<code>DB_DATABASE</code> 中修改，修改后需重启服务。
 							</p>
 						</div>
 					</Panel>
 
 					<Panel
 						title="管理员账号"
-						description="第一个账号固定为超级管理员；它是之后分配角色、系统更新的唯一入口。"
+						description="首个账号固定为超级管理员，也是后续分配角色与执行系统更新的唯一入口。"
 					>
 						<div class="space-y-4">
 							<div class="grid gap-4 sm:grid-cols-2">
@@ -414,7 +425,7 @@
 								bind:value={email}
 								type="email"
 								placeholder="admin@example.com"
-								hint="仅用于取头像（WeAvatar）。留空则显示首字母圆圈。"
+								hint="仅用于获取头像（WeAvatar）。留空则显示首字母圆形头像。"
 							/>
 							<div class="grid gap-4 sm:grid-cols-2">
 								<Field
@@ -433,6 +444,7 @@
 					{#if error}
 						<div
 							class="flex items-start gap-2 rounded-[var(--radius-form)] border border-error-line bg-error-soft px-3 py-2.5 text-[12.5px] text-error-ink"
+							title={errorDetail}
 						>
 							<Icon name="alert" size={15} class="mt-px shrink-0" />
 							<span>{error}</span>
@@ -446,7 +458,7 @@
 							<Icon name="alert" size={15} class="mt-px shrink-0" />
 							<span>
 								后端无法写入 <code>{status.env.abs_path}</code
-								>，请检查该文件与所在目录的权限后重启后端。
+								>，请检查该文件及所在目录的权限，然后重启后端服务。
 							</span>
 						</div>
 					{/if}
@@ -462,7 +474,7 @@
 							完成初始化
 						</Button>
 						<span class="text-[11.5px] text-fg-faint">
-							提交后会写入 .env、建库建表，并创建管理员账号。
+							提交后将写入 .env、创建数据库与数据表，并创建管理员账号。
 						</span>
 					</div>
 				</form>

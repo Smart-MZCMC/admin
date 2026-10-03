@@ -16,8 +16,82 @@
  *    并保证这样的格子永远进不了 PUT 的请求体。两边各写一份「受保护清单」，
  *    迟早分叉，而分叉之后生效的是前端那份没人 review 的。
  */
-import type { PolicyPermissionView, PolicyRoleView } from './api/types';
+import type {
+	PolicyPermissionView,
+	PolicyRoleView,
+	PolicyView,
+	RolePermissionsResult
+} from './api/types';
 import { permissionLabel } from './rbac';
+
+/**
+ * 把后端响应里的「一组名字」归一成数组。
+ *
+ * 为什么要多这一层：Go 的 `encoding/json` 把 **nil 切片** 序列化成 `null` 而不是
+ * `[]`。后端 rbac.Change 的 Granted / Revoked 在「本次没有新增」/「本次没有取消」
+ * 时就是 nil，于是响应里出现 `"granted": null`。
+ *
+ * 前端照单全收的后果不是显示难看，而是**整页崩掉**：describeChange 会读
+ * `granted.length`，`isChecked` 会读 `role.grants.includes(...)`，两者都在渲染
+ * 路径上，抛出的 TypeError 把矩阵整块掀掉。而触发条件极其常见——只要这次保存
+ * 没有「取消」任何一项（也就是绝大多数只加不减的改动），页面就会在「保存成功」
+ * 的同一刻变成空白，用户根本不知道自己刚刚已经改了权限。
+ *
+ * 归一而不是改后端：契约在两边都要能独立演进，前端不该假设「后端一定给数组」。
+ * 顺带把非字符串元素丢掉——那是不该出现的东西，出现在界面上只会变成一个
+ * `undefined` 的中文名。
+ *
+ * 一律返回**新数组**：调用方拿到的必须是自己的副本，否则「返回空数组」会变成
+ * 「返回后端那个共享对象」，后面往里 push 就污染了原始响应。
+ */
+export function toNameList(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter((item): item is string => typeof item === 'string');
+}
+
+/**
+ * 把 GET /api/rbac/policy 的响应归一成可以安全渲染的形状。
+ *
+ * 三个列表字段（warnings / permissions[].holders / roles[].grants）都过一遍
+ * toNameList：其中 grants 与 holders 一旦是 null，`isChecked` 里的
+ * `grants.includes` 会在渲染那一行时抛错，而受保护的 system.maintain 那一列
+ * 与「把某个角色清空到零权限」这两种情况恰好都会走到它。
+ *
+ * source 缺省成 'embedded' 而不是 'database'：读不出来时按「不是数据库」处理，
+ * 多提醒一次的代价只是多一条提示，漏提醒的代价是管理员按旧策略排查很久
+ * （理由与 /rbac 页面里那个 $derived 同源）。
+ */
+export function normalisePolicyView(raw: PolicyView): PolicyView {
+	return {
+		source: typeof raw?.source === 'string' ? raw.source : 'embedded',
+		warnings: toNameList(raw?.warnings),
+		permissions: (Array.isArray(raw?.permissions) ? raw.permissions : []).map((perm) => ({
+			...perm,
+			holders: toNameList(perm?.holders)
+		})),
+		roles: (Array.isArray(raw?.roles) ? raw.roles : []).map((role) => ({
+			...role,
+			grants: toNameList(role?.grants)
+		}))
+	};
+}
+
+/**
+ * 把 PUT 的成功响应归一成可以安全展示的形状。
+ *
+ * 只有 granted / revoked 需要处理，而它们恰恰是最容易变成 null 的两个字段
+ * （理由见 toNameList）。这一处曾让「保存」在成功后立刻崩掉：界面先弹一句
+ * TypeError 的红字，然后停在编辑态，而服务端其实已经改了——用户看到的是
+ * 「报错了」，实际发生的是「已经生效了」。
+ */
+export function normaliseRolePermissions(raw: RolePermissionsResult): RolePermissionsResult {
+	return {
+		...raw,
+		granted: toNameList(raw?.granted),
+		revoked: toNameList(raw?.revoked),
+		warnings: toNameList(raw?.warnings)
+	};
+}
 
 /**
  * 矩阵里的某一格是否不可改。
@@ -226,8 +300,16 @@ export function policyFailure(code: string | null | undefined, detail: string): 
 				true
 			);
 		default:
-			// 没带 code 的失败（断网、500、格式异常）不该乱丢用户的选择，
-			// 但也不能断言「刷新一下就好」，所以不自动刷新。
-			return { kind: 'unknown', code: code ?? '', message: reason, reload: false, keepDraft: true };
+			// 没带 code 的失败（断网、500、网关 502 返回 HTML、响应格式不对）。
+			// 不该乱丢用户的选择，但也**必须说清选择还在**——否则用户看着一句
+			// 「请求失败 (HTTP 502)」无法判断刚才那半小时的勾选是白费了还是要重填，
+			// 于是多半会去刷新页面。也不自动刷新：这一类重试不一定管用。
+			return {
+				kind: 'unknown',
+				code: code ?? '',
+				message: `${reason}。你勾的内容已保留，可以直接再点一次保存。`,
+				reload: false,
+				keepDraft: true
+			};
 	}
 }

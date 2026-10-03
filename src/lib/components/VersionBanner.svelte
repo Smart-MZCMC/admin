@@ -37,13 +37,13 @@
 	 */
 	function describe(s: VersionStateWithFlags): string {
 		if (s.status === 'unsupported') {
-			return `管理后台版本 ${s.client} 已低于服务端要求的最低适配版本 ${s.minimum}，部分功能可能异常，请尽快更新。`;
+			return `管理后台版本 ${s.client} 低于服务端要求的最低适配版本 ${s.minimum}，部分功能可能无法正常使用，请尽快更新。`;
 		}
 		if (s.status === 'client-behind') {
-			return `管理后台版本 ${s.client} 落后于服务端 ${s.server}，建议更新后再操作。`;
+			return `管理后台版本 ${s.client} 低于服务端版本 ${s.server}，建议更新后再继续操作。`;
 		}
 		if (s.status === 'client-ahead') {
-			return `管理后台版本 ${s.client} 新于服务端 ${s.server}，服务端可能缺少接口，请升级服务端。`;
+			return `管理后台版本 ${s.client} 高于服务端版本 ${s.server}，服务端可能缺少相应接口，请升级服务端。`;
 		}
 		return '';
 	}
@@ -85,6 +85,6 @@
 		</svg>
 		<span class="min-w-0 flex-1">{text}</span>
 		<span class="shrink-0 font-mono text-[11px] opacity-80">本端 v{appVersion}</span>
-		<Button size="sm" variant="ghost" onclick={() => (dismissed = true)}>知道了</Button>
+		<Button size="sm" variant="ghost" onclick={() => (dismissed = true)}>关闭</Button>
 	</div>
 {/if}

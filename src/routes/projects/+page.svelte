@@ -80,7 +80,7 @@
 
 	function formatSchedule(project: Project): string {
 		const start = project.scheduled_start ? new Date(project.scheduled_start) : null;
-		if (!start || Number.isNaN(start.getTime())) return '未排期';
+		if (!start || Number.isNaN(start.getTime())) return '未设置日程';
 		const text = start.toLocaleString('zh-CN', {
 			month: '2-digit',
 			day: '2-digit',
@@ -116,7 +116,7 @@
 		try {
 			projects = await api.listProjects();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载项目失败');
+			feedback.error(err instanceof Error ? err.message : '项目列表加载失败。');
 		} finally {
 			loading = false;
 		}
@@ -153,15 +153,15 @@
 	async function save() {
 		if (saving) return;
 		if (!formName.trim()) {
-			feedback.error('项目名称不能为空');
+			feedback.error('请填写项目名称。');
 			return;
 		}
 		if (editingId === null && !formCode.trim()) {
-			feedback.error('项目编码不能为空');
+			feedback.error('请填写项目编码。');
 			return;
 		}
 		if (formStart && formEnd && formEnd < formStart) {
-			feedback.error('结束时间不能早于开始时间');
+			feedback.error('结束时间不能早于开始时间。');
 			return;
 		}
 
@@ -184,15 +184,15 @@
 		try {
 			if (editingId === null) {
 				await api.createProject({ ...payload, code: formCode.trim() });
-				feedback.success('项目创建成功，已按默认列表初始化机位预设');
+				feedback.success('项目已创建，机位预设已按默认列表初始化。');
 			} else {
 				await api.updateProject(editingId, payload);
-				feedback.success('项目已更新');
+				feedback.success('项目已更新。');
 			}
 			formOpen = false;
 			await load();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '保存项目失败');
+			feedback.error(err instanceof Error ? err.message : '项目保存失败。');
 		} finally {
 			saving = false;
 		}
@@ -202,10 +202,10 @@
 	async function changeStatus(project: Project, status: ProjectStatus) {
 		try {
 			await api.updateProject(project.id, { status });
-			feedback.success(`「${project.name}」已标记为${PROJECT_STATUS_LABELS[status]}`);
+			feedback.success(`已将项目「${project.name}」标记为「${PROJECT_STATUS_LABELS[status]}」。`);
 			await load();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '更新状态失败');
+			feedback.error(err instanceof Error ? err.message : '项目状态更新失败。');
 		}
 	}
 
@@ -215,10 +215,10 @@
 		pendingDelete = null;
 		try {
 			await api.deleteProject(project.id);
-			feedback.success('项目已删除');
+			feedback.success('项目已删除。');
 			await load();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '删除项目失败');
+			feedback.error(err instanceof Error ? err.message : '项目删除失败。');
 		}
 	}
 
@@ -228,7 +228,7 @@
 			copiedCode = code;
 			setTimeout(() => (copiedCode = null), 1500);
 		} catch {
-			feedback.error('复制失败，请手动选择编码文本');
+			feedback.error('复制失败，请手动选中编码文本后复制。');
 		}
 	}
 
@@ -244,7 +244,7 @@
 		try {
 			cameras = await api.cameras(projectId);
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载机位失败');
+			feedback.error(err instanceof Error ? err.message : '机位列表加载失败。');
 			cameras = [];
 		} finally {
 			camerasLoading = false;
@@ -258,9 +258,9 @@
 			await api.createCamera(camerasProject.id, { name });
 			newCameraName = '';
 			await loadCameras(camerasProject.id);
-			feedback.success('机位已添加');
+			feedback.success('机位已添加。');
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '添加机位失败');
+			feedback.error(err instanceof Error ? err.message : '机位添加失败。');
 		}
 	}
 
@@ -271,7 +271,7 @@
 			await api.updateCamera(camerasProject.id, camera.id, { name });
 			await loadCameras(camerasProject.id);
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '重命名失败');
+			feedback.error(err instanceof Error ? err.message : '机位重命名失败。');
 		}
 	}
 
@@ -281,7 +281,7 @@
 			await api.deleteCamera(camerasProject.id, camera.id);
 			await loadCameras(camerasProject.id);
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '删除机位失败');
+			feedback.error(err instanceof Error ? err.message : '机位删除失败。');
 		}
 	}
 
@@ -296,7 +296,7 @@
 			await api.updateCamera(camerasProject.id, b.id, { sort_order: index });
 			await loadCameras(camerasProject.id);
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '调整顺序失败');
+			feedback.error(err instanceof Error ? err.message : '机位顺序调整失败。');
 		}
 	}
 
@@ -309,7 +309,7 @@
 		try {
 			cuts = await api.shotCuts(project.id);
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载切台记录失败');
+			feedback.error(err instanceof Error ? err.message : '切台记录加载失败。');
 		} finally {
 			cutsLoading = false;
 		}
@@ -328,7 +328,7 @@
 
 <PageHeader
 	title="项目管理"
-	description="项目编码是各客户端订阅时使用的唯一标识，创建后不可修改；日程决定导播端把哪一场置顶。"
+	description="项目编码是各客户端订阅时使用的唯一标识，创建后不可修改。日程决定导播端优先显示哪一场。"
 >
 	{#snippet actions()}
 		<Button variant="secondary" icon="refresh" disabled={loading} onclick={() => void load()}>
@@ -350,7 +350,7 @@
 		rows={projects}
 		rowKey={(project) => project.id}
 		{loading}
-		emptyText="还没有项目，点击右上角「新建项目」开始。"
+		emptyText="暂无项目。可点击右上角的「新建项目」开始创建。"
 	>
 		{#snippet cell(project, column)}
 			{#if column.key === 'id'}
@@ -360,7 +360,7 @@
 			{:else if column.key === 'code'}
 				<button
 					type="button"
-					title="点击复制编码"
+					title="点击复制项目编码"
 					onclick={() => void copyCode(project.code)}
 					class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-bg-overlay px-2 py-1 font-mono text-[11.5px] text-fg-muted transition-colors hover:border-primary/40 hover:bg-primary-soft hover:text-primary-ink"
 				>
@@ -398,9 +398,11 @@
 						编辑
 					</Button>
 					<Button size="sm" variant="secondary" onclick={() => void openCameras(project)}>
-						机位
+						机位预设
 					</Button>
-					<Button size="sm" variant="secondary" onclick={() => void openCuts(project)}>切台</Button>
+					<Button size="sm" variant="secondary" onclick={() => void openCuts(project)}
+						>切台记录</Button
+					>
 					<Button
 						size="sm"
 						variant="danger-ghost"
@@ -420,7 +422,7 @@
 <Modal
 	visible={formOpen}
 	title={editingId === null ? '新建项目' : '编辑项目'}
-	submitText={saving ? '保存中...' : editingId === null ? '创建' : '保存'}
+	submitText={saving ? '保存中…' : editingId === null ? '创建' : '保存'}
 	submitDisabled={saving}
 	onsubmit={save}
 	onclose={() => (formOpen = false)}
@@ -430,7 +432,7 @@
 		<Field
 			label="项目编码"
 			bind:value={formCode}
-			placeholder="如：sports2025（唯一，创建后不可改）"
+			placeholder="例如：sports2025（唯一，创建后不可修改）"
 			required
 		/>
 	{:else}
@@ -439,8 +441,8 @@
 			<div class="mt-0.5 font-mono text-[12.5px] text-fg">{formCode}</div>
 		</div>
 	{/if}
-	<Field label="描述" bind:value={formDescription} placeholder="可选，留空即清空" />
-	<Field label="场地" bind:value={formVenue} placeholder="可选，如：田径场" />
+	<Field label="描述" bind:value={formDescription} placeholder="可选；留空会清除已有内容" />
+	<Field label="场地" bind:value={formVenue} placeholder="可选，例如：田径场" />
 
 	<div class="grid gap-3 sm:grid-cols-2">
 		<label class="block">
@@ -485,7 +487,7 @@
 			</select>
 		</label>
 	</div>
-	<p class="text-[11.5px] text-fg-faint">彩排与正式直播的切台记录会分开统计，便于赛后复盘。</p>
+	<p class="text-[11.5px] text-fg-faint">彩排与正式直播的切台记录分开统计，便于赛后复盘。</p>
 </Modal>
 
 <Modal
@@ -496,14 +498,13 @@
 	onclose={() => (camerasOpen = false)}
 >
 	<p class="text-[11.5px] text-fg-faint">
-		这些名字就是导播端预设按钮上显示的文字，顺序即按钮顺序。此前它们硬编码在导播端代码里，
-		换个场地就得重新构建，现在由项目自己配置。
+		这些名称将作为导播端预设按钮上的文字，排列顺序与此处一致。
 	</p>
 
 	<div class="flex gap-2">
 		<input
 			bind:value={newCameraName}
-			placeholder="新机位名称，如：终点线"
+			placeholder="新机位名称，例如：终点线"
 			class="h-9 flex-1 rounded-[var(--radius-form)] border border-border bg-bg-surface px-3 text-[12.5px] text-fg focus:border-primary focus:outline-none"
 			onkeydown={(event) => {
 				if (event.key === 'Enter') {
@@ -525,7 +526,7 @@
 		<p class="text-[12px] text-fg-muted">正在加载…</p>
 	{:else if cameras.length === 0}
 		<p class="text-[12px] text-fg-muted">
-			该项目还没有机位预设，导播端会退回到内置的 10 个默认机位。
+			该项目尚未设置机位预设，导播端将使用内置的 10 个默认机位。
 		</p>
 	{:else}
 		<ul class="divide-y divide-border rounded-[var(--radius-form)] border border-border">
@@ -581,7 +582,7 @@
 		<p class="text-[12px] text-fg-muted">正在统计…</p>
 	{:else if !cuts || cuts.total === 0}
 		<p class="text-[12px] text-fg-muted">
-			还没有切台记录。导播每次「确认已切」都会记一行——只发预告不算。
+			暂无切台记录。导播每次确认切台后都会记录一行，仅发送预告不计入记录。
 		</p>
 	{:else}
 		<div class="grid gap-3 sm:grid-cols-3">
@@ -629,9 +630,9 @@
 				<thead class="sticky top-0 bg-bg-overlay">
 					<tr class="text-[11px] text-fg-muted">
 						<th class="px-3 py-2 font-medium">时间</th>
-						<th class="px-3 py-2 font-medium">从</th>
-						<th class="px-3 py-2 font-medium">切到</th>
-						<th class="px-3 py-2 font-medium">导播</th>
+						<th class="px-3 py-2 font-medium">原机位</th>
+						<th class="px-3 py-2 font-medium">目标机位</th>
+						<th class="px-3 py-2 font-medium">导播 ID</th>
 					</tr>
 				</thead>
 				<tbody class="divide-y divide-border">
@@ -657,8 +658,8 @@
 <ConfirmDialog
 	visible={pendingDelete !== null}
 	title="删除项目"
-	message="确定删除项目「{pendingDelete?.name ??
-		''}」？该项目下的授权、控制权锁、采访点状态、机位预设、切台记录与历史消息都会被清除，此操作不可撤销。"
+	message="确认删除项目「{pendingDelete?.name ??
+		''}」？该项目的授权记录、控制权占用、采访点状态、机位预设、切台记录与历史消息都会被清除，且无法恢复。"
 	confirmText="删除"
 	danger
 	onconfirm={confirmDelete}

@@ -75,7 +75,7 @@
 			}
 			stats = next;
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载总览数据失败');
+			feedback.error(err instanceof Error ? err.message : '总览数据加载失败。');
 		} finally {
 			loading = false;
 		}
@@ -128,10 +128,10 @@
 
 <svelte:head><title>总览 - 管理后台</title></svelte:head>
 
-<PageHeader title="运营总览" description="用户、项目与实时通信的整体运行情况。">
+<PageHeader title="运营总览" description="本平台账号、项目与实时通信的整体运行情况。">
 	{#snippet actions()}
 		<Button variant="secondary" icon="refresh" disabled={loading} onclick={() => void load()}>
-			刷新数据
+			刷新
 		</Button>
 		<!-- /projects 要 project.manage；负责人没有，别给一个点了就报错的入口。 -->
 		{#if auth.can('project.manage')}
@@ -161,19 +161,19 @@
 		value={loading ? null : online}
 		icon="activity"
 		tone="success"
-		hint={online === null ? '服务器未连接' : 'WebSocket 实时连接数'}
+		hint={online === null ? '未连接到服务端' : '浏览器与服务器的实时通道（WebSocket）连接数'}
 	/>
 	<StatCard
 		label="消息累计"
 		value={loading ? null : totalMessages}
 		icon="logs"
 		tone="warning"
-		hint={`${activeLocks} 个项目控制权占用中`}
+		hint={`${activeLocks} 个项目正在占用控制权`}
 	/>
 </div>
 
 <div class="mt-5 grid gap-5 xl:grid-cols-[1.45fr_1fr]">
-	<Panel title="最近动态" description="所有项目最近产生的通信记录。" bodyClass="p-0">
+	<Panel title="最近动态" description="全部项目最近产生的通信记录。" bodyClass="p-0">
 		{#snippet actions()}
 			<Button size="sm" variant="ghost" icon="logs" onclick={() => void goto(resolve('/logs'))}>
 				查看全部
@@ -185,7 +185,7 @@
 		{:else if recent.length === 0}
 			<div class="px-5 py-14 text-center">
 				<p class="text-[12.5px] text-fg-faint">暂无通信记录</p>
-				<p class="mt-1 text-[11.5px] text-fg-faint">各客户端开始通信后，动态会出现在这里。</p>
+				<p class="mt-1 text-[11.5px] text-fg-faint">各客户端开始通信后，记录会显示在这里。</p>
 			</div>
 		{:else}
 			<ul class="divide-y divide-border">
@@ -211,13 +211,13 @@
 		{/if}
 	</Panel>
 
-	<Panel title="项目概览" description="按消息量排序，显示控制权占用情况。" bodyClass="p-0">
+	<Panel title="项目概览" description="按消息量排序，显示控制权的占用情况。" bodyClass="p-0">
 		{#if loading}
 			<Spinner label="正在统计项目…" />
 		{:else if projectRows.length === 0}
 			<div class="px-5 py-14 text-center">
-				<p class="text-[12.5px] text-fg-faint">还没有项目</p>
-				<p class="mt-1 text-[11.5px] text-fg-faint">创建项目后即可开始分配与导播。</p>
+				<p class="text-[12.5px] text-fg-faint">暂无项目</p>
+				<p class="mt-1 text-[11.5px] text-fg-faint">创建项目后即可分配成员并开始导播。</p>
 			</div>
 		{:else}
 			<ul class="divide-y divide-border">
@@ -229,7 +229,7 @@
 								<div class="mt-0.5 font-mono text-[11px] text-fg-faint">{row.code}</div>
 							</div>
 							{#if row.locked}
-								<Tag text={`占用中 #${row.holder}`} state="warning" size="xs" />
+								<Tag text={`占用中（#${row.holder}）`} state="warning" size="xs" />
 							{:else}
 								<Tag text="空闲" state="neutral" size="xs" />
 							{/if}

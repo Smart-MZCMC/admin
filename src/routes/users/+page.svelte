@@ -89,7 +89,7 @@
 				.catch(() => (allRoles = []));
 			users = await api.listUsers();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载用户失败');
+			feedback.error(err instanceof Error ? err.message : '账号列表加载失败。');
 		} finally {
 			loading = false;
 		}
@@ -108,12 +108,12 @@
 	async function createUser() {
 		if (creating) return;
 		if (!newUsername.trim() || !newPassword) {
-			feedback.error('用户名和密码不能为空');
+			feedback.error('请填写用户名和密码。');
 			return;
 		}
 		// 与后端 minPasswordLength 保持一致，提前拦掉而不是等 400。
 		if (newPassword.length < 6) {
-			feedback.error('密码至少 6 位');
+			feedback.error('密码至少 6 位。');
 			return;
 		}
 		creating = true;
@@ -125,10 +125,10 @@
 				role: newRole
 			});
 			createOpen = false;
-			feedback.success('用户创建成功');
+			feedback.success('账号已创建。');
 			await load();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '创建用户失败');
+			feedback.error(err instanceof Error ? err.message : '账号创建失败。');
 		} finally {
 			creating = false;
 		}
@@ -137,10 +137,10 @@
 	async function changeRole(id: number, role: string) {
 		try {
 			await api.updateUserRole(id, role);
-			feedback.success('角色已更新');
+			feedback.success('角色已更新。');
 			await load();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '更新角色失败');
+			feedback.error(err instanceof Error ? err.message : '角色更新失败。');
 		}
 	}
 
@@ -150,10 +150,10 @@
 		pendingDelete = null;
 		try {
 			await api.deleteUser(user.id);
-			feedback.success('用户已删除');
+			feedback.success('账号已删除。');
 			await load();
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '删除用户失败');
+			feedback.error(err instanceof Error ? err.message : '账号删除失败。');
 		}
 	}
 
@@ -174,7 +174,7 @@
 
 <PageHeader
 	title="用户管理"
-	description="管理员可管理全部项目，导播仅能使用被分配的项目。增删账号与调整角色需要账号管理权限。"
+	description="管理员可管理全部项目，导播仅能使用被授权的项目。新建与删除账号、调整角色需要账号管理权限。"
 >
 	{#snippet actions()}
 		<Button variant="secondary" icon="refresh" disabled={loading} onclick={() => void load()}>
@@ -185,7 +185,7 @@
 			页面（user.view）却建不了人，不藏按钮的话点了必然失败。
 		-->
 		{#if auth.can('user.manage')}
-			<Button variant="primary" icon="plus" onclick={openCreate}>新建用户</Button>
+			<Button variant="primary" icon="plus" onclick={openCreate}>新建账号</Button>
 		{/if}
 	{/snippet}
 </PageHeader>
@@ -203,7 +203,7 @@
 		rows={users}
 		rowKey={(user) => user.id}
 		{loading}
-		emptyText="还没有用户，点击右上角「新建用户」开始。"
+		emptyText="暂无账号。可点击右上角的「新建账号」开始创建。"
 	>
 		{#snippet cell(user, column)}
 			{#if column.key === 'id'}
@@ -269,8 +269,8 @@
 
 <Modal
 	visible={createOpen}
-	title="新建用户"
-	submitText={creating ? '创建中...' : '创建'}
+	title="新建账号"
+	submitText={creating ? '创建中…' : '创建'}
 	submitDisabled={creating}
 	onsubmit={createUser}
 	onclose={() => (createOpen = false)}
@@ -289,16 +289,16 @@
 			{/each}
 		</select>
 		<p class="mt-1.5 text-[11.5px] text-fg-faint">
-			只能授予不高于自己的角色。需要更高权限请联系超级管理员。
+			只能授予等级不高于当前账号的角色。如需更高权限，请联系超级管理员。
 		</p>
 	</label>
 </Modal>
 
 <ConfirmDialog
 	visible={pendingDelete !== null}
-	title="删除用户"
-	message="确定删除用户「{pendingDelete?.username ??
-		''}」？该用户的授权记录与控制权锁会一并清除，此操作不可撤销。"
+	title="删除账号"
+	message="确认删除账号「{pendingDelete?.username ??
+		''}」？该账号的授权记录与控制权占用会一并清除，且无法恢复。"
 	confirmText="删除"
 	danger
 	onconfirm={confirmDelete}

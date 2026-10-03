@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { fade, fly } from 'svelte/transition';
+	import { dialogTransitions, watchReducedMotion } from '$lib/overlay-motion';
 	import Button from './Button.svelte';
 	import Icon from './Icon.svelte';
 
@@ -31,6 +33,16 @@
 
 	let panel = $state<HTMLDivElement | null>(null);
 
+	// reduced-motion 只能在 JS 里判断：svelte/transition 写的是 JS 驱动的内联样式，
+	// app.css 里的 @media (prefers-reduced-motion: reduce) 对它无效。
+	let reduced = $state(false);
+	$effect(() => watchReducedMotion((value) => (reduced = value)));
+
+	// 和 Modal 共用同一份参数：确认框只是更窄更短，手感不该另起一套。
+	let motion = $derived(dialogTransitions(reduced));
+
+	// 退场动画期间面板还在 DOM 里，「确定」本来会被连点两次；和 Modal 一样交给
+	// Svelte 自带的 outro inert 处理（见 Modal.svelte 里的说明）。
 	$effect(() => {
 		if (!visible) return;
 		function onKeydown(event: KeyboardEvent) {
@@ -44,6 +56,7 @@
 
 {#if visible}
 	<div
+		transition:fade={motion.backdrop}
 		class="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-[2px]"
 		role="presentation"
 		onclick={(event) => {
@@ -52,6 +65,7 @@
 	>
 		<div
 			bind:this={panel}
+			transition:fly={motion.panel}
 			role="alertdialog"
 			aria-modal="true"
 			aria-label={title}

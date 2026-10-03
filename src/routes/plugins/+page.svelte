@@ -53,7 +53,7 @@
 			}
 			stats = next;
 		} catch (err) {
-			feedback.error(err instanceof Error ? err.message : '加载失败');
+			feedback.error(err instanceof Error ? err.message : '插件与统计数据加载失败。');
 		} finally {
 			loading = false;
 		}
@@ -107,14 +107,14 @@
 		value={loading ? null : activeLocks}
 		icon="assign"
 		tone="warning"
-		hint="同一项目同一时间仅一名导播持有"
+		hint="同一项目在同一时刻仅有一名导播持有控制权。"
 	/>
 </div>
 
 <div class="mt-5 space-y-5">
 	<Panel
 		title="插件列表"
-		description="由后端插件注册中心上报，插件异常不会影响主流程。配置项来自后端环境变量，机密的取值已做脱敏。"
+		description="插件状态由服务端插件注册中心上报，插件异常不会影响主流程。配置项取自服务端环境变量，敏感取值的显示已做脱敏处理。"
 		bodyClass="p-5"
 	>
 		{#if loading}
@@ -125,7 +125,7 @@
 			>
 				<p class="text-[12.5px] text-fg-muted">暂无已注册插件</p>
 				<p class="mt-1 text-[11.5px] text-fg-faint">
-					后端启动时会注册 ntfy-alert、log-archive、csv-export 等内置插件。
+					服务端启动时会注册 ntfy-alert、log-archive、csv-export 等内置插件。
 				</p>
 			</div>
 		{:else}
@@ -176,7 +176,7 @@
 
 	<Panel
 		title="项目统计"
-		description="每个项目的消息量、采访点数量与控制权占用情况。"
+		description="各项目的消息数量、采访点数量与控制权占用情况。"
 		bodyClass="p-0"
 	>
 		<DataTable
@@ -184,7 +184,7 @@
 			rows={statsRows}
 			rowKey={(row) => row.id}
 			{loading}
-			emptyText="还没有项目可统计"
+			emptyText="暂无项目可统计。"
 		>
 			{#snippet cell(row, column)}
 				{#if column.key === 'id'}
@@ -201,7 +201,7 @@
 					{#if row.lock === null}
 						<span class="text-fg-faint">—</span>
 					{:else if row.lock}
-						<Tag text={`占用中 #${row.lock_holder}`} state="warning" size="sm" />
+						<Tag text={`占用中（#${row.lock_holder}）`} state="warning" size="sm" />
 					{:else}
 						<Tag text="空闲" state="neutral" size="sm" />
 					{/if}
